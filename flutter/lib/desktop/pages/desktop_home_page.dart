@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
+import 'package:flutter_hbb/common/widgets/glass_container.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
@@ -132,9 +133,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       value: gFFI.serverModel,
       child: Container(
         width: isIncomingOnly ? 280.0 : 200.0,
-        color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
+            const Positioned.fill(child: GlassBackdrop()),
             Column(
               children: [
                 SingleChildScrollView(
@@ -189,8 +190,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   buildIDBoard(BuildContext context) {
     final model = gFFI.serverModel;
-    return Container(
-      margin: const EdgeInsets.only(left: 20, right: 11),
+    return GlassContainer(
+      margin: const EdgeInsets.only(left: 12, right: 11, top: 4, bottom: 4),
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       height: 57,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -296,8 +299,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
-    return Container(
-      margin: EdgeInsets.only(left: 20.0, right: 16, top: 13, bottom: 13),
+    return GlassContainer(
+      margin: const EdgeInsets.only(left: 12, right: 11, top: 6, bottom: 6),
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
