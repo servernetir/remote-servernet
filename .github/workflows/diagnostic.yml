@@ -1,0 +1,12 @@
+name: diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: [".github/workflows/diagnostic.yml"]
+jobs:
+  github-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "github-native actions work; runner started OK"
