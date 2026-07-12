@@ -62,12 +62,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
     return _buildBlock(
-        child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
       children: [
-        buildLeftPane(context),
-        if (!isIncomingOnly) const VerticalDivider(width: 1),
-        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+        const Positioned.fill(child: GlassBackdrop()),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            buildLeftPane(context),
+            if (!isIncomingOnly)
+              VerticalDivider(
+                  width: 1, color: Colors.white.withOpacity(0.12)),
+            if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+          ],
+        ),
       ],
     ));
   }
@@ -135,7 +142,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         width: isIncomingOnly ? 280.0 : 200.0,
         child: Stack(
           children: [
-            const Positioned.fill(child: GlassBackdrop()),
             Column(
               children: [
                 SingleChildScrollView(
@@ -183,7 +189,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   buildRightPane(BuildContext context) {
     return Container(
-      color: Theme.of(context).scaffoldBackgroundColor,
+      color: Colors.transparent,
       child: ConnectionPage(),
     );
   }
