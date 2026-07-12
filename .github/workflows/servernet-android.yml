@@ -202,3 +202,5 @@ jobs:
           path: servernet-remote-${{ env.VERSION }}-arm64.apk
 
 # re-test after Actions banner fix
+
+# retest after allowing all actions

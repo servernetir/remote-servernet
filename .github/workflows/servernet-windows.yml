@@ -183,3 +183,5 @@ jobs:
         with:
           name: servernet-remote-windows-x64-unsigned
           path: rustdesk
+
+# retest after allowing all actions
