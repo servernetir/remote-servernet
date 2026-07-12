@@ -88,6 +88,8 @@ jobs:
     name: build android apk (arm64-v8a)
     needs: [generate-bridge]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -201,6 +203,10 @@ jobs:
           name: servernet-remote-android-arm64
           path: servernet-remote-${{ env.VERSION }}-arm64.apk
 
-# re-test after Actions banner fix
-
-# retest after allowing all actions
+      - name: Publish to public release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          tag_name: android-latest
+          name: "Servernet Remote — Android (latest)"
+          body: "Debug-signed arm64-v8a APK. Auto-updated by CI."
+          files: servernet-remote-${{ env.VERSION }}-arm64.apk

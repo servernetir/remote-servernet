@@ -91,6 +91,8 @@ jobs:
     name: build windows x64 (unsigned)
     needs: [generate-bridge]
     runs-on: windows-2022
+    permissions:
+      contents: write
     steps:
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
@@ -184,4 +186,13 @@ jobs:
           name: servernet-remote-windows-x64-unsigned
           path: rustdesk
 
-# retest after allowing all actions
+      - name: Zip portable build
+        run: Compress-Archive -Path rustdesk\* -DestinationPath servernet-remote-${{ env.VERSION }}-windows-x64.zip
+
+      - name: Publish to public release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          tag_name: windows-latest
+          name: "Servernet Remote — Windows (latest)"
+          body: "Unsigned portable Windows x64 build. Extract and run rustdesk.exe. Auto-updated by CI."
+          files: servernet-remote-${{ env.VERSION }}-windows-x64.zip
