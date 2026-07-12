@@ -89,6 +89,43 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
     super.dispose();
   }
 
+  // Quick light/dark theme toggle in the top bar.
+  Widget _quickThemeButton(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return IconButton(
+      tooltip: translate('Theme'),
+      splashRadius: 18,
+      icon: Icon(
+          isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          size: 18),
+      onPressed: () {
+        final next = MyTheme.currentThemeMode() == ThemeMode.dark
+            ? ThemeMode.light
+            : ThemeMode.dark;
+        MyTheme.changeDarkMode(next);
+      },
+    );
+  }
+
+  // Quick fa / en / tr language switch in the top bar.
+  Widget _quickLangButton(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: translate('Language'),
+      splashRadius: 18,
+      icon: const Icon(Icons.translate_rounded, size: 18),
+      onSelected: (key) async {
+        await bind.mainSetLocalOption(key: kCommConfKeyLang, value: key);
+        bind.mainChangeLanguage(lang: key);
+        reloadAllWindows();
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'fa', child: Text('فارسی')),
+        PopupMenuItem(value: 'en', child: Text('English')),
+        PopupMenuItem(value: 'tr', child: Text('Türkçe')),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tabWidget = Container(
@@ -96,14 +133,22 @@ class _DesktopTabPageState extends State<DesktopTabPage> {
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
-              tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
-                child: ActionIcon(
-                  message: 'Settings',
-                  icon: IconFont.menu,
-                  onTap: DesktopTabPage.onAddSetting,
-                  isClose: false,
-                ),
+              tail: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _quickLangButton(context),
+                  _quickThemeButton(context),
+                  Offstage(
+                    offstage:
+                        bind.isIncomingOnly() || bind.isDisableSettings(),
+                    child: ActionIcon(
+                      message: 'Settings',
+                      icon: IconFont.menu,
+                      onTap: DesktopTabPage.onAddSetting,
+                      isClose: false,
+                    ),
+                  ),
+                ],
               ),
             )));
     return isMacOS || kUseCompatibleUiMode

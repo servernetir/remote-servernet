@@ -101,27 +101,32 @@ class GlassBackdrop extends StatelessWidget {
               end: Alignment.bottomRight,
               colors: isDark
                   ? const [
-                      Color(0xFF0B0D14),
-                      Color(0xFF161A2B),
-                      Color(0xFF10131C),
+                      Color(0xFF0A0F1A),
+                      Color(0xFF121A2E),
+                      Color(0xFF12132A),
                     ]
                   : const [
-                      Color(0xFFEFF3FF),
-                      Color(0xFFE6ECFB),
-                      Color(0xFFF3EEFC),
+                      Color(0xFFEAF2FF),
+                      Color(0xFFE3EAFA),
+                      Color(0xFFEFEAFB),
                     ],
             ),
           ),
         ),
         Positioned(
-          top: -120,
-          left: -80,
-          child: _blob(const Color(0xFF4F7CFF), 320, isDark),
+          top: -140,
+          left: -110,
+          child: _blob(const Color(0xFF5FD8CC), 380, isDark),
         ),
         Positioned(
-          bottom: -140,
-          right: -100,
-          child: _blob(const Color(0xFF7B5CFA), 360, isDark),
+          top: -60,
+          right: -120,
+          child: _blob(const Color(0xFF6FB6F5), 320, isDark),
+        ),
+        Positioned(
+          bottom: -160,
+          right: -110,
+          child: _blob(const Color(0xFF8E9BF5), 420, isDark),
         ),
         if (child != null) child!,
       ],
@@ -134,7 +139,7 @@ class GlassBackdrop extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: color.withOpacity(isDark ? 0.22 : 0.28),
+        color: color.withOpacity(isDark ? 0.22 : 0.30),
       ),
     );
   }
