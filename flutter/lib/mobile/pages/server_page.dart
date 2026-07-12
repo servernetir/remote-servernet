@@ -9,6 +9,7 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
+import '../../common/widgets/glass_container.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
@@ -838,17 +839,13 @@ class PaddingCard extends StatelessWidget {
     }
     return SizedBox(
         width: double.maxFinite,
-        child: Card(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(13),
-          ),
+        child: GlassContainer(
+          borderRadius: 16,
           margin: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 0),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
-            child: Column(
-              children: children,
-            ),
+          padding:
+              const EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
+          child: Column(
+            children: children,
           ),
         ));
   }
