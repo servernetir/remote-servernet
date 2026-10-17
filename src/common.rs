@@ -2031,7 +2031,16 @@ pub fn create_symmetric_key_msg(their_pk_b: [u8; 32]) -> (Bytes, Bytes, secretbo
 
 #[inline]
 pub fn using_public_server() -> bool {
-    crate::get_custom_rendezvous_server(get_option("custom-rendezvous-server")).is_empty()
+    if !crate::get_custom_rendezvous_server(get_option("custom-rendezvous-server")).is_empty() {
+        return false;
+    }
+    // No user override. Upstream treated "no override" as "on the public
+    // server", which is wrong once a private relay is compiled in as the
+    // default — it made the home screen keep nagging "set up your own server"
+    // while already connected to ours. Decide from the built-in default.
+    config::RENDEZVOUS_SERVERS
+        .iter()
+        .any(|s| s.ends_with("rustdesk.com"))
 }
 
 pub struct ThrottledInterval {

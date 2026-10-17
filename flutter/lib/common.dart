@@ -168,32 +168,34 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   final Color? toastText;
   final Color? divider;
 
+  // Brand hairlines: cool slate rather than neutral grey, so borders read as
+  // part of the servernet.cloud palette instead of default Material grey.
   static final light = ColorThemeExtension(
-    border: Color(0xFFCCCCCC),
-    border2: Color(0xFFBBBBBB),
-    border3: Colors.black26,
-    highlight: Color(0xFFE5E5E5),
-    drag_indicator: Colors.grey[800],
-    shadow: Colors.black,
+    border: Color(0x2B0F172A), // --line-2 light
+    border2: Color(0x3D0F172A),
+    border3: Color(0x1A0F172A), // --line light
+    highlight: Color(0xFFEEF2FA), // row hover, light
+    drag_indicator: Color(0xFF5A6478),
+    shadow: Color(0xFF141E3C),
     errorBannerBg: Color(0xFFFDEEEB),
-    me: Colors.green,
-    toastBg: Colors.black.withOpacity(0.6),
+    me: Color(0xFF047857),
+    toastBg: Color(0xCC05070F),
     toastText: Colors.white,
-    divider: Colors.black38,
+    divider: Color(0x1A0F172A),
   );
 
   static final dark = ColorThemeExtension(
-    border: Color(0xFF555555),
-    border2: Color(0xFFE5E5E5),
-    border3: Colors.white24,
-    highlight: Color(0xFF3F3F3F),
-    drag_indicator: Colors.grey,
-    shadow: Colors.grey,
+    border: Color(0x24FFFFFF), // --line-2 dark
+    border2: Color(0x38FFFFFF),
+    border3: Color(0x14FFFFFF), // --line dark
+    highlight: Color(0xFF101320), // row hover, dark
+    drag_indicator: Color(0xFF8A94AC),
+    shadow: Colors.black,
     errorBannerBg: Color(0xFF470F2D),
-    me: Colors.greenAccent,
-    toastBg: Colors.white.withOpacity(0.6),
-    toastText: Colors.black,
-    divider: Colors.white38,
+    me: MyTheme.snGreen,
+    toastBg: Color(0xCCF3F5FB),
+    toastText: Color(0xFF141A28),
+    divider: Color(0x14FFFFFF),
   );
 
   @override
@@ -238,11 +240,14 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
       highlight: Color.lerp(highlight, other.highlight, t),
       drag_indicator: Color.lerp(drag_indicator, other.drag_indicator, t),
       shadow: Color.lerp(shadow, other.shadow, t),
-      errorBannerBg: Color.lerp(shadow, other.errorBannerBg, t),
-      me: Color.lerp(shadow, other.me, t),
-      toastBg: Color.lerp(shadow, other.toastBg, t),
-      toastText: Color.lerp(shadow, other.toastText, t),
-      divider: Color.lerp(shadow, other.divider, t),
+      // These five lerped from `shadow` instead of themselves — a copy-paste
+      // bug that made the toast, the error banner and the divider animate out
+      // of near-black on every theme switch.
+      errorBannerBg: Color.lerp(errorBannerBg, other.errorBannerBg, t),
+      me: Color.lerp(me, other.me, t),
+      toastBg: Color.lerp(toastBg, other.toastBg, t),
+      toastText: Color.lerp(toastText, other.toastText, t),
+      divider: Color.lerp(divider, other.divider, t),
     );
   }
 }
@@ -250,18 +255,122 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 class MyTheme {
   MyTheme._();
 
-  static const Color grayBg = Color(0xFFEFEFF2);
-  static const Color accent = Color(0xFF5B7CFA);
-  static const Color accent50 = Color(0x775B7CFA);
-  static const Color accent80 = Color(0xAA5B7CFA);
-  static const Color canvasColor = Color(0xFF212121);
-  static const Color border = Color(0xFFCCCCCC);
-  static const Color idColor = Color(0xFF00B6F0);
+  // Servernet brand tokens — values taken from servernet.cloud/assets/css/site.css
+  // so the client and the website read as one product.
+  static const Color snBlue = Color(0xFF3B82F6); // --blue
+  static const Color snCyan = Color(0xFF22D3EE); // --cyan
+  static const Color snViolet = Color(0xFF8B5CF6); // --violet
+  static const Color snGreen = Color(0xFF34D399); // --green
+  // Same family as the rest (Tailwind 400/500 ramp), for the one state
+  // that is neither healthy nor failed: service reachable, not ready.
+  static const Color snAmber = Color(0xFFFBBF24);
+  static const Color snBg = Color(0xFF05070F); // --bg   (dark ground)
+  static const Color snBg2 = Color(0xFF080B16); // --bg2
+  static const Color snDeck = Color(0xFF0A0D18); // opaque work area, dark
+  static const Color snPlate = Color(0xFF0E1017); // opaque card, dark
+  static const Color snBgLight = Color(0xFFF3F5FB); // light ground
+  static const Color snDeckLight = Color(0xFFF7F9FD); // light work area
+  // Absolute Alignment, never AlignmentDirectional: the brand gradient must
+  // run the same way in fa as it does on the website.
+  static const LinearGradient snGradient = LinearGradient(
+    begin: Alignment(-1.0, 0.34),
+    end: Alignment(1.0, -0.34),
+    colors: [snBlue, snCyan],
+  );
+
+  static const double snRadiusSm = 10;
+  static const double snRadius = 18;
+  static const double snRadiusLg = 24;
+  static const Cubic snEase = Cubic(.22, 1, .36, 1);
+
+  // ---- three-layer model -------------------------------------------------
+  // FRAME  = glass, theme-reactive : title bar, operator rail, status line
+  // DECK   = opaque, never blurred : work area, peer list, cards
+  // PLATE  = ALWAYS DARK, mono, LTR: device ID / one-time password
+  //
+  // Resolved from Brightness rather than threaded through ColorThemeExtension:
+  // these are flat lookups, and every extra field there has to be repeated
+  // across six sites (ctor, decls, .light, .dark, copyWith, lerp), which is
+  // exactly how the lerp bug fixed above got in.
+  static bool _dark(BuildContext c) =>
+      Theme.of(c).brightness == Brightness.dark;
+
+  /// Opaque work-area ground. Suppresses the aurora so small text stays crisp.
+  static Color deck(BuildContext c) => _dark(c) ? snDeck : snDeckLight;
+
+  /// Opaque card fill sitting on the deck.
+  static Color card(BuildContext c) => _dark(c) ? snPlate : Colors.white;
+
+  /// Translucent fill for FRAME surfaces that sit over the aurora.
+  static Color frameTint(BuildContext c) =>
+      _dark(c) ? const Color(0xB805070F) : const Color(0xBDF7F9FD);
+
+  static Color textMain(BuildContext c) =>
+      _dark(c) ? const Color(0xFFE6EAF3) : const Color(0xFF141A28);
+  static Color textMuted(BuildContext c) =>
+      _dark(c) ? const Color(0xFF8A94AC) : const Color(0xFF5A6478);
+
+  /// AA-corrected. The brand's own --dim (#5B6478) is 3.39:1 on --bg and fails
+  /// WCAG AA for text, so it is kept for decoration only.
+  static Color textDim(BuildContext c) =>
+      _dark(c) ? const Color(0xFF737D95) : const Color(0xFF68728A);
+
+  static Color line(BuildContext c) =>
+      _dark(c) ? const Color(0x14FFFFFF) : const Color(0x1A0F172A);
+  static Color line2(BuildContext c) =>
+      _dark(c) ? const Color(0x24FFFFFF) : const Color(0x2B0F172A);
+
+  static Color rowHover(BuildContext c) =>
+      _dark(c) ? const Color(0xFF101320) : const Color(0xFFEEF2FA);
+
+  // ---- INSTRUMENT layer: identical in both themes, by design --------------
+  // Light-mode glass tops out around 1.07:1 separation; a dark plate on the
+  // light deck gives ~15:1, so the hero element is MORE legible in light mode.
+  // Being Directionality.ltr locked, it also makes Persian-digit device IDs
+  // physically impossible.
+  static const Color plateTop = Color(0xFF0C1120);
+  static const Color plateBottom = Color(0xFF080B16);
+  static const Color plateLine = Color(0x17FFFFFF);
+  static const Color plateSpecular = Color(0x24FFFFFF);
+  static const Color plateLabel = Color(0xFF93A0BC);
+  static const Color plateValue = Color(0xFFF2F6FF);
+  static const Color plateValueAccent = Color(0xFFBFE9F7);
+  static const List<String> plateMono = [
+    'Consolas',
+    'Menlo',
+    'monospace',
+  ];
+
+  // Split form of plateMono, for a TextStyle that needs a PRIMARY mono family
+  // rather than only a fallback chain. Machine-readable values (device ID,
+  // one-time password) use this so their digits stay tabular; prose uses
+  // [fontFamily] and gets IRANSans. Android resolves 'monospace' to its own
+  // mono face, so the chain lands correctly there too.
+  static const String monoFamily = 'Consolas';
+  static const List<String> monoFallback = ['Menlo', 'monospace'];
+
+  /// Brand text face. IRANSans has no Turkish g-breve / s-cedilla / dotless-i /
+  /// dotted-capital-I, so a platform face follows it — Flutter falls back per
+  /// glyph, meaning Turkish text stays in IRANSans except for those four.
+  static const String fontFamily = 'IRANSans';
+  static const List<String> fontFamilyFallback = [
+    'Segoe UI',
+    'Tahoma',
+    'sans-serif',
+  ];
+
+  static const Color grayBg = Color(0xFFF1F4FA);
+  static const Color accent = snBlue;
+  static const Color accent50 = Color(0x773B82F6);
+  static const Color accent80 = Color(0xAA3B82F6);
+  static const Color canvasColor = snDeck;
+  static const Color border = Color(0xFFD8DEEA);
+  static const Color idColor = snCyan;
   static const Color darkGray = Color.fromARGB(255, 148, 148, 148);
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
-  static const Color button = Color(0xFF2C8CFF);
-  static const Color hoverBorder = Color(0xFF999999);
+  static const Color button = snBlue;
+  static const Color hoverBorder = Color(0xFF8A94AC);
 
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
@@ -372,11 +481,13 @@ class MyTheme {
   );
 
   static ThemeData lightTheme = ThemeData(
+    fontFamily: MyTheme.fontFamily,
+    fontFamilyFallback: MyTheme.fontFamilyFallback,
     // https://stackoverflow.com/questions/77537315/after-upgrading-to-flutter-3-16-the-app-bar-background-color-button-size-and
     useMaterial3: false,
     brightness: Brightness.light,
-    hoverColor: Color.fromARGB(255, 224, 224, 224),
-    scaffoldBackgroundColor: Colors.white,
+    hoverColor: Color(0xFFEEF2FA),
+    scaffoldBackgroundColor: snBgLight,
     dialogBackgroundColor: Colors.white,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
@@ -454,7 +565,7 @@ class MyTheme {
         style:
             MenuStyle(backgroundColor: MaterialStatePropertyAll(Colors.white))),
     colorScheme: ColorScheme.light(
-        primary: Colors.blue, secondary: accent, background: grayBg),
+        primary: snBlue, secondary: snCyan, background: snBgLight),
     popupMenuTheme: PopupMenuThemeData(
         color: Colors.white,
         shape: RoundedRectangleBorder(
@@ -471,11 +582,13 @@ class MyTheme {
     ],
   );
   static ThemeData darkTheme = ThemeData(
+    fontFamily: MyTheme.fontFamily,
+    fontFamilyFallback: MyTheme.fontFamilyFallback,
     useMaterial3: false,
     brightness: Brightness.dark,
-    hoverColor: Color.fromARGB(255, 45, 46, 53),
-    scaffoldBackgroundColor: Color(0xFF18191E),
-    dialogBackgroundColor: Color(0xFF18191E),
+    hoverColor: Color(0xFF101320),
+    scaffoldBackgroundColor: snBg,
+    dialogBackgroundColor: snBg2,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
@@ -485,14 +598,14 @@ class MyTheme {
         borderRadius: BorderRadius.circular(18.0),
         side: BorderSide(
           width: 1,
-          color: Color(0xFF24252B),
+          color: Color(0xFF0E1017),
         ),
       ),
     ),
     scrollbarTheme: scrollbarThemeDark,
     inputDecorationTheme: (isDesktop || isWebDesktop)
         ? InputDecorationTheme(
-            fillColor: Color(0xFF24252B),
+            fillColor: Color(0xFF0E1017),
             filled: true,
             isDense: true,
             border: OutlineInputBorder(
@@ -511,7 +624,7 @@ class MyTheme {
         color: accent80,
       ),
     ),
-    cardColor: Color(0xFF24252B),
+    cardColor: Color(0xFF0E1017),
     visualDensity: VisualDensity.adaptivePlatformDensity,
     tabBarTheme: const TabBarTheme(
       labelColor: Colors.white70,
@@ -545,7 +658,7 @@ class MyTheme {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: Color(0xFF24252B),
+        backgroundColor: Color(0xFF0E1017),
         side: BorderSide(color: Colors.white12, width: 0.5),
         disabledForegroundColor: Colors.white70,
         foregroundColor: Colors.white70,
@@ -562,9 +675,9 @@ class MyTheme {
         style: MenuStyle(
             backgroundColor: MaterialStatePropertyAll(Color(0xFF121212)))),
     colorScheme: ColorScheme.dark(
-      primary: Colors.blue,
-      secondary: accent,
-      background: Color(0xFF24252B),
+      primary: snBlue,
+      secondary: snCyan,
+      background: snPlate,
     ),
     popupMenuTheme: PopupMenuThemeData(
         shape: RoundedRectangleBorder(
@@ -579,7 +692,12 @@ class MyTheme {
   );
 
   static ThemeMode getThemeModePreference() {
-    return themeModeFromString(bind.mainGetLocalOption(key: kCommConfKeyTheme));
+    final stored = bind.mainGetLocalOption(key: kCommConfKeyTheme);
+    // Servernet Remote ships light. Only follow the OS once the user has
+    // explicitly picked a mode in Settings — an empty value means "never set",
+    // which is different from having chosen "system".
+    if (stored.isEmpty) return ThemeMode.light;
+    return themeModeFromString(stored);
   }
 
   static Future<void> changeDarkMode(ThemeMode mode) async {
@@ -645,6 +763,27 @@ final ButtonStyle flatButtonStyle = TextButton.styleFrom(
     borderRadius: BorderRadius.all(Radius.circular(2.0)),
   ),
 );
+
+/// The app stored its language in the Rust-side `lang` option and used it for
+/// [translate], but never told Flutter about it: GetMaterialApp had no
+/// `locale:`, so Localizations fell back to the OS locale and Directionality
+/// stayed LTR. Persian text therefore rendered inside a left-to-right layout.
+/// Deriving the locale from the same stored option is what makes RTL work.
+/// Persian is the shipped default: the product is sold to an Iranian audience,
+/// so an unconfigured install should come up in fa rather than following an
+/// English OS. An explicit choice in Settings still wins.
+const String kSnDefaultLang = 'fa';
+
+Locale? currentAppLocale() {
+  try {
+    final lang = bind.mainGetLocalOption(key: kCommConfKeyLang);
+    if (lang.isEmpty || lang == 'default') return const Locale(kSnDefaultLang);
+    final parts = lang.split(RegExp(r'[_-]'));
+    return parts.length > 1 ? Locale(parts[0], parts[1]) : Locale(parts[0]);
+  } catch (_) {
+    return const Locale(kSnDefaultLang);
+  }
+}
 
 List<Locale> supportedLocales = const [
   Locale('en', 'US'),
@@ -3744,17 +3883,19 @@ Widget loadPowered(BuildContext context) {
     cursor: SystemMouseCursors.click,
     child: GestureDetector(
       onTap: () {
-        launchUrl(Uri.parse('https://rustdesk.com'));
+        launchUrl(Uri.parse('https://www.servernet.cloud'));
       },
       child: Opacity(
-          opacity: 0.5,
+          // 9px at 50% is unreadable in Persian/Arabic script; the brand line
+          // is meant to be seen, so keep it small but legible in every locale.
+          opacity: 0.75,
           child: Text(
             translate("powered_by_me"),
             overflow: TextOverflow.clip,
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
-                ?.copyWith(fontSize: 9, decoration: TextDecoration.underline),
+                ?.copyWith(fontSize: 11, decoration: TextDecoration.underline),
           )),
     ),
   ).marginOnly(top: 6);

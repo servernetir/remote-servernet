@@ -8,8 +8,11 @@ class GlassContainer extends StatelessWidget {
   const GlassContainer({
     Key? key,
     required this.child,
-    this.borderRadius = 16,
-    this.blurSigma = 20,
+    this.borderRadius = 18,
+    // sigma 20 is a very expensive backdrop pass and is indistinguishable from
+    // 8 over a low-frequency aurora. Keep it low: this widget can be on screen
+    // while the GPU is already busy decoding a remote video stream.
+    this.blurSigma = 8,
     this.padding,
     this.margin,
     this.width,
@@ -41,12 +44,13 @@ class GlassContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final resolvedTint = tint ?? (isDark ? const Color(0xFF15171F) : Colors.white);
-    final resolvedOpacity = opacity ?? (isDark ? 0.38 : 0.55);
+    // servernet.cloud glass recipe: --surface over --bg, hairline --line border.
+    final resolvedTint = tint ?? (isDark ? const Color(0xFF05070F) : Colors.white);
+    final resolvedOpacity = opacity ?? (isDark ? 0.72 : 0.74);
     final resolvedBorder = borderColor ??
         (isDark
-            ? Colors.white.withOpacity(0.08)
-            : Colors.white.withOpacity(0.55));
+            ? Colors.white.withOpacity(0.14)
+            : const Color(0xFF0F172A).withOpacity(0.17));
 
     return Container(
       width: width,
@@ -96,37 +100,39 @@ class GlassBackdrop extends StatelessWidget {
       children: [
         DecoratedBox(
           decoration: BoxDecoration(
+            // Ground tones lifted verbatim from servernet.cloud (--bg / --bg2).
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: isDark
                   ? const [
-                      Color(0xFF0A0F1A),
-                      Color(0xFF121A2E),
-                      Color(0xFF12132A),
+                      Color(0xFF05070F),
+                      Color(0xFF080B16),
+                      Color(0xFF0A0D18),
                     ]
                   : const [
-                      Color(0xFFEAF2FF),
-                      Color(0xFFE3EAFA),
-                      Color(0xFFEFEAFB),
+                      Color(0xFFF3F5FB),
+                      Color(0xFFF7F9FD),
+                      Color(0xFFEFF3FB),
                     ],
             ),
           ),
         ),
+        // Brand aurora: blue -> cyan -> violet, the servernet.cloud accent trio.
         Positioned(
-          top: -140,
-          left: -110,
-          child: _blob(const Color(0xFF5FD8CC), 380, isDark),
+          top: -170,
+          left: -140,
+          child: _blob(const Color(0xFF3B82F6), 420, isDark),
         ),
         Positioned(
-          top: -60,
+          top: -90,
+          right: -130,
+          child: _blob(const Color(0xFF22D3EE), 360, isDark),
+        ),
+        Positioned(
+          bottom: -180,
           right: -120,
-          child: _blob(const Color(0xFF6FB6F5), 320, isDark),
-        ),
-        Positioned(
-          bottom: -160,
-          right: -110,
-          child: _blob(const Color(0xFF8E9BF5), 420, isDark),
+          child: _blob(const Color(0xFF8B5CF6), 440, isDark),
         ),
         if (child != null) child!,
       ],
@@ -134,12 +140,29 @@ class GlassBackdrop extends StatelessWidget {
   }
 
   Widget _blob(Color color, double size, bool isDark) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withOpacity(isDark ? 0.22 : 0.30),
+    // A radial falloff, not a flat disc. A solid circle at 22% reads as a
+    // hard-edged pastel blob; the gradient gives the same soft glow the brand
+    // site gets from a 70px CSS blur, without paying for an ImageFilter pass.
+    //
+    // Four stops rather than three: the extra one near the centre keeps the
+    // core luminous while the tail still reaches zero, so the edge never shows
+    // the faint ring a two-step ramp leaves behind.
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              color.withOpacity(isDark ? 0.40 : 0.20),
+              color.withOpacity(isDark ? 0.26 : 0.12),
+              color.withOpacity(isDark ? 0.09 : 0.04),
+              color.withOpacity(0.0),
+            ],
+            stops: const [0.0, 0.38, 0.68, 1.0],
+          ),
+        ),
       ),
     );
   }

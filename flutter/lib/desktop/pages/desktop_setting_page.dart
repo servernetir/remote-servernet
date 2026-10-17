@@ -36,8 +36,13 @@ const double _kContentHSubMargin = _kContentHMargin + 33;
 const double _kCheckBoxLeftMargin = 10;
 const double _kRadioLeftMargin = 10;
 const double _kListViewBottomMargin = 15;
-const double _kTitleFontSize = 20;
-const double _kContentFontSize = 15;
+// Upstream sized these for its own face at 20/15. IRANSans has a noticeably
+// larger x-height and wider Persian glyphs at the same nominal size, so the
+// settings pages read oversized and cramped against the 540px card width.
+// 17/13.5 restores the intended density without going below the 12px floor
+// Persian script needs to stay legible.
+const double _kTitleFontSize = 17;
+const double _kContentFontSize = 13.5;
 const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
 const String _kSettingPageTabKeyTag = 'settingPageTabKey';
@@ -2429,7 +2434,7 @@ class _AboutState extends State<_About> {
       final scrollController = ScrollController();
       return SingleChildScrollView(
         controller: scrollController,
-        child: _Card(title: translate('About RustDesk'), children: [
+        child: _Card(title: translate('About Servernet Remote'), children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2448,7 +2453,7 @@ class _AboutState extends State<_About> {
                         .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
+                    launchUrlString('https://www.servernet.cloud/privacy');
                   },
                   child: Text(
                     translate('Privacy Statement'),
@@ -2456,16 +2461,34 @@ class _AboutState extends State<_About> {
                   ).marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com');
+                    launchUrlString('https://www.servernet.cloud');
                   },
                   child: Text(
                     translate('Website'),
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
+              // AGPL-3.0 obliges us to make the corresponding source of this
+              // modified client available to the people we ship it to, so the
+              // link belongs in the product, not only on the website.
+              InkWell(
+                  onTap: () {
+                    launchUrlString(
+                        'https://github.com/servernetir/remote-servernet');
+                  },
+                  child: Text(
+                    translate('Source Code'),
+                    style: linkStyle,
+                  ).marginSymmetric(vertical: 4.0)),
+              // The brand statement. Was a flat #2c8cff block carrying the
+              // upstream vendor's copyright; now the ServerNet gradient with
+              // our own attribution and an AGPL notice.
               Container(
-                decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
+                decoration: BoxDecoration(
+                  gradient: MyTheme.snGradient,
+                  borderRadius: BorderRadius.circular(MyTheme.snRadius),
+                ),
                 padding:
-                    const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
+                    const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
                 child: SelectionArea(
                     child: Row(
                   children: [
@@ -2474,15 +2497,30 @@ class _AboutState extends State<_About> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Tech Pte. Ltd.\n$license',
-                            style: const TextStyle(color: Colors.white),
+                            translate('sn_about_statement'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              height: 1.85,
+                            ),
                           ),
+                          const SizedBox(height: 14),
                           Text(
-                            translate('Slogan_tip'),
+                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Servernet.Cloud',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            license.isEmpty ? 'AGPL-3.0' : license,
                             style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          )
+                              color: Colors.white.withOpacity(0.82),
+                              fontSize: 11,
+                            ),
+                          ),
                         ],
                       ),
                     ),

@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+// Prefixed: an unprefixed dart:ui collides with material on TextStyle/Gradient.
+import 'dart:ui' as ui;
 
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
-import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
 import 'package:flutter_hbb/common/widgets/glass_container.dart';
+import 'package:flutter_hbb/common/widgets/instrument_plate.dart';
+import 'package:flutter_hbb/common/widgets/lumen.dart';
+import 'package:flutter_hbb/common/widgets/permissions_sheet.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
@@ -53,9 +56,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool isCardClosed = false;
 
   final RxBool _editHover = false.obs;
+  final RxBool _accountHover = false.obs;
   final RxBool _block = false.obs;
 
   final GlobalKey _childKey = GlobalKey();
+
+  /// Last seen access-mode + four-permission signature. See initState: the
+  /// permissions row has to stay current when the SAME options are written from
+  /// the settings page's Safety tab in another window, and the two surfaces are
+  /// not subscribed to each other.
+  String _accessSig = '';
 
   @override
   Widget build(BuildContext context) {
@@ -65,18 +75,50 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         child: Stack(
       children: [
         const Positioned.fill(child: GlassBackdrop()),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // The status line spans the FULL window width, so the rail/work split
+        // is an Expanded row above it rather than the page's top-level Row.
+        Column(
           children: [
-            buildLeftPane(context),
-            if (!isIncomingOnly)
-              VerticalDivider(
-                  width: 1, color: Colors.white.withOpacity(0.12)),
-            if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+            Expanded(
+              child: Row(
+                // stretch, not start: a VerticalDivider under a loose vertical
+                // constraint collapses to zero height and the 1px seam between
+                // the rail and the work area disappears.
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  buildLeftPane(context),
+                  // Was a hardcoded white hairline, invisible on the #F3F5FB
+                  // light ground — and light is the default theme.
+                  if (!isIncomingOnly)
+                    VerticalDivider(width: 1, color: MyTheme.line(context)),
+                  if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
+                ],
+              ),
+            ),
+            // Incoming-only keeps its own inline OnlineStatusWidget inside the
+            // pane; a second one here would double the row and the service
+            // toggle.
+            if (!isIncomingOnly) buildStatusLine(context),
           ],
         ),
       ],
     ));
+  }
+
+  /// Full-window-width FRAME strip under both panes. This page only owns the
+  /// slot and the hairline — OnlineStatusWidget itself carries the state dot,
+  /// relay, latency and the Powered-by link. It MUST stay a descendant of this
+  /// page: it resolves Get.find<RxBool>(tag: 'stop-service') against the
+  /// Get.put in this file's initState.
+  Widget buildStatusLine(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: MyTheme.frameTint(context),
+        border: Border(top: BorderSide(color: MyTheme.line(context), width: 1)),
+      ),
+      child: const OnlineStatusWidget(),
+    );
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -87,79 +129,28 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget buildLeftPane(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
     final isOutgoingOnly = bind.isOutgoingOnly();
-    final children = <Widget>[
-      if (!isOutgoingOnly) buildPresetPasswordWarning(),
-      if (bind.isCustomClient())
-        Align(
-          alignment: Alignment.center,
-          child: loadPowered(context),
-        ),
-      Align(
-        alignment: Alignment.center,
-        child: loadLogo(),
-      ),
-      buildTip(context),
-      if (!isOutgoingOnly) buildIDBoard(context),
-      if (!isOutgoingOnly) buildPasswordBoard(context),
-      FutureBuilder<Widget>(
-        future: Future.value(
-            Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
-        builder: (_, data) {
-          if (data.hasData) {
-            if (isIncomingOnly) {
-              if (isInHomePage()) {
-                Future.delayed(Duration(milliseconds: 300), () {
-                  _updateWindowSize();
-                });
-              }
-            }
-            return data.data!;
-          } else {
-            return const Offstage();
-          }
-        },
-      ),
-      buildPluginEntry(),
-    ];
-    if (isIncomingOnly) {
-      children.addAll([
-        Divider(),
-        OnlineStatusWidget(
-          onSvcStatusChanged: () {
-            if (isInHomePage()) {
-              Future.delayed(Duration(milliseconds: 300), () {
-                _updateWindowSize();
-              });
-            }
-          },
-        ).marginOnly(bottom: 6, right: 6)
-      ]);
-    }
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
-      child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+      child: SizedBox(
+        // 320 is the operator-rail width from the approved layout. At the old
+        // 200 the device ID was clipped by the kebab menu. The incoming-only
+        // branch keeps 280 — that window is sized from
+        // common.dart imcomingOnlyHomeSize and resizes oddly otherwise.
+        width: isIncomingOnly ? 280.0 : 320.0,
         child: Stack(
           children: [
-            Column(
-              children: [
-                SingleChildScrollView(
-                  controller: _leftPaneScrollController,
-                  child: Column(
-                    key: _childKey,
-                    children: children,
-                  ),
-                ),
-                Expanded(child: Container())
-              ],
-            ),
+            _buildRailGlass(context),
+            if (isIncomingOnly)
+              _buildIncomingOnlyPane(context)
+            else
+              _buildOperatorRail(context),
             if (isOutgoingOnly)
-              Positioned(
+              PositionedDirectional(
                 bottom: 6,
-                left: 12,
+                start: 12,
                 child: Align(
-                  alignment: Alignment.centerLeft,
+                  alignment: AlignmentDirectional.centerStart,
                   child: InkWell(
                     child: Obx(
                       () => Icon(
@@ -187,6 +178,436 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  /// LIVE BACKDROPFILTER #2 of the three the app is allowed. Deliberately a
+  /// Positioned.fill SIBLING painted *behind* the rail content and never an
+  /// ancestor of the notice-stack scroller: a BackdropFilter above a scroller
+  /// re-rasterises its whole subtree on every scrolled frame.
+  Widget _buildRailGlass(BuildContext context) {
+    return Positioned.fill(
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Container(color: MyTheme.frameTint(context)),
+        ),
+      ),
+    );
+  }
+
+  /// The OPERATOR RAIL: the "Your Desktop" hero sheet, then the scrollable
+  /// notice stack, then the account chip pinned to the bottom.
+  ///
+  /// The LayoutBuilder is not polish: main.dart's window options never set a
+  /// minimumSize, so the rail can be dragged shorter than the hero's natural
+  /// 278px. Below 420px of rail the hero drops to 255px (tighter gaps, shorter
+  /// service and access rows, no four-glyph readout) — the instrument plate
+  /// itself never changes size.
+  Widget _buildOperatorRail(BuildContext context) {
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    return LayoutBuilder(builder: (context, constraints) {
+      final compact = constraints.maxHeight < 420;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // One composed sheet replaces the bare plate + service card: the
+          // credential plate, the service row and the permissions row now read
+          // as one designed panel rather than three stacked widgets.
+          if (!isOutgoingOnly) _buildYourDesktopSheet(context, compact),
+          Expanded(
+            child: RepaintBoundary(
+              child: SingleChildScrollView(
+                controller: _leftPaneScrollController,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!isOutgoingOnly) buildPresetPasswordWarning(),
+                    _buildHelpCardsSlot(),
+                    buildPluginEntry(),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          buildAccountChip(context),
+          // Keeps the chip clear of the settings gear, which is pinned at
+          // bottom/start of the rail Stack in outgoing-only builds.
+          if (isOutgoingOnly) const SizedBox(height: 28),
+        ],
+      );
+    });
+  }
+
+  /// HERO A — "Your Desktop" / دسکتاپ شما.
+  ///
+  /// Three depths visible at once inside 278px, where stock RustDesk has one:
+  ///   LIT SHEET (LumenSheet, lifted off the rail's glass by a travelling
+  ///   specular rim, a contact hairline and one negative-spread shadow)
+  ///     -> EMISSIVE INSTRUMENT (the existing InstrumentPlate, unmodified, now
+  ///        seated in a cyan under-plate bloom so light appears to leak from
+  ///        beneath it)
+  ///       -> RECESSED WELL (LumenWell holding the service row and the pinned
+  ///          permissions row — every control that takes input lives in a well).
+  ///
+  /// ZERO new blur: the sheet already sits on the operator rail's live
+  /// BackdropFilter, so blurring here would blur an already-blurred,
+  /// already-frameTinted surface for a luminance change under 1%. The app's one
+  /// remaining hero blur belongs to the connect command bar.
+  Widget _buildYourDesktopSheet(BuildContext context, bool compact) {
+    if (!(isDesktop || isWebDesktop)) {
+      // Non-desktop reach keeps the pre-LUMEN shape byte for byte: bare plate
+      // plus the service card in its own decorated container.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          buildIDBoard(context),
+          Container(
+            margin: const EdgeInsetsDirectional.only(
+                start: 12, end: 11, bottom: 8),
+            decoration: BoxDecoration(
+              color: MyTheme.card(context),
+              borderRadius: BorderRadius.circular(MyTheme.snRadiusSm),
+              border: Border.all(color: MyTheme.line(context), width: 1),
+            ),
+            child: _buildServiceRow(context, compact),
+          ),
+        ],
+      );
+    }
+    final dark = lumenDark(context);
+    return LumenSheet(
+      onGlass: true,
+      elevation: LumenElevation.page,
+      radius: MyTheme.snRadiusLg,
+      margin: const EdgeInsetsDirectional.only(
+          start: 12, end: 11, top: 8, bottom: 8),
+      padding: const EdgeInsetsDirectional.fromSTEB(11, 10, 11, 11),
+      // The plate is opaque and covers this bloom's core, so only the halo
+      // escapes around its bottom and trailing edges — which is what makes the
+      // instrument read as lit rather than as another dark card. Cyan because
+      // the plate's own accent and leading rail already are.
+      bloom: PositionedDirectional(
+        start: -30,
+        top: 24,
+        width: 262,
+        height: 172,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(-0.20, -0.10),
+                radius: .85,
+                stops: const [0, .50, 1],
+                colors: [
+                  MyTheme.snCyan.withOpacity(dark ? .18 : .13),
+                  MyTheme.snCyan.withOpacity(dark ? .07 : .05),
+                  MyTheme.snCyan.withOpacity(0),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildYourDesktopHeader(context),
+          SizedBox(height: compact ? 6 : 9),
+          // buildPasswordBoard is not listed separately: it renders as a row
+          // inside the instrument plate that buildIDBoard returns.
+          buildIDBoard(context, margin: EdgeInsets.zero),
+          SizedBox(height: compact ? 7 : 9),
+          LumenWell(
+            radius: 12,
+            children: [
+              _buildServiceRow(context, compact),
+              // Inset 10 on both sides, plain symmetric padding: a horizontal
+              // hairline has no handedness so there is nothing to mirror.
+              // width: infinity because LumenWell's Column centres its children
+              // rather than stretching them.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: SizedBox(
+                  height: 1,
+                  width: double.infinity,
+                  child: ColoredBox(
+                      color: dark
+                          ? const Color(0x14FFFFFF)
+                          : const Color(0x140F172A)),
+                ),
+              ),
+              PermissionsAccessRow(compact: compact),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 20px header: the lamp names the panel's direction (cyan = inbound), the
+  /// title finally says what the block is, the help glyph restores the desk_tip
+  /// string for 0px of vertical rail, and the live pill counts sessions.
+  Widget _buildYourDesktopHeader(BuildContext context) {
+    return SizedBox(
+      height: 20,
+      child: Row(
+        children: [
+          const LumenLamp(color: MyTheme.snCyan),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    translate('Your Desktop'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                      letterSpacing: lumenLetterSpacing(context, 1.15),
+                      color: MyTheme.textMuted(context),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Tooltip(
+                  waitDuration: const Duration(milliseconds: 300),
+                  message: translate('desk_tip'),
+                  child: Icon(Icons.help_outline_outlined,
+                      size: 13, color: MyTheme.textDim(context)),
+                ),
+              ],
+            ),
+          ),
+          // Its own Obx, never the sheet's: an Obx around the sheet would
+          // rebuild the instrument plate once a second.
+          Obx(() {
+            final n = stateGlobal.videoConnCount.value;
+            if (n <= 0) return const SizedBox.shrink();
+            return Container(
+              height: 18,
+              padding: const EdgeInsetsDirectional.only(start: 6, end: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(9),
+                color:
+                    MyTheme.snGreen.withOpacity(lumenDark(context) ? .14 : .12),
+                border: Border.all(
+                    color: MyTheme.snGreen.withOpacity(.34), width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                        shape: BoxShape.circle, color: MyTheme.snGreen),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '$n',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      height: 1.0,
+                      color: MyTheme.snGreen,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  /// Incoming-only keeps the old single-scroller shape ON PURPOSE: that window
+  /// auto-sizes to its content through [_childKey] + [_updateWindowSize], which
+  /// only measures correctly while the keyed Column has an intrinsic height
+  /// (i.e. contains no Expanded).
+  Widget _buildIncomingOnlyPane(BuildContext context) {
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    return Column(
+      children: [
+        SingleChildScrollView(
+          controller: _leftPaneScrollController,
+          child: Column(
+            key: _childKey,
+            children: [
+              if (!isOutgoingOnly) buildPresetPasswordWarning(),
+              Align(
+                alignment: Alignment.center,
+                child: loadLogo(),
+              ),
+              if (!isOutgoingOnly) buildIDBoard(context),
+              _buildHelpCardsSlot(),
+              buildPluginEntry(),
+              Divider(),
+              Padding(
+                // Was .marginOnly(bottom: 6, right: 6) — GetX emits physical
+                // insets, so the gap landed on the wrong side under fa.
+                padding: const EdgeInsetsDirectional.only(bottom: 6, end: 6),
+                child: OnlineStatusWidget(
+                  onSvcStatusChanged: () {
+                    if (isInHomePage()) {
+                      Future.delayed(Duration(milliseconds: 300), () {
+                        _updateWindowSize();
+                      });
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: Container())
+      ],
+    );
+  }
+
+  /// Shared by both panes so the incoming-only window-resize trigger keeps
+  /// firing from exactly one place.
+  Widget _buildHelpCardsSlot() {
+    return FutureBuilder<Widget>(
+      future:
+          Future.value(Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
+      builder: (_, data) {
+        if (data.hasData) {
+          if (bind.isIncomingOnly()) {
+            if (isInHomePage()) {
+              Future.delayed(Duration(milliseconds: 300), () {
+                _updateWindowSize();
+              });
+            }
+          }
+          return data.data!;
+        } else {
+          return const Offstage();
+        }
+      },
+    );
+  }
+
+  /// The service ROW — first row of Hero A's well. Read-only by design: the
+  /// single source of truth for the service state is the svcStopped RxBool this
+  /// file Get.put()s under tag 'stop-service', and the start/stop control itself
+  /// lives in OnlineStatusWidget on the status line.
+  ///
+  /// It carries no decoration of its own any more: the LumenWell is the surface.
+  /// The Obx is load-bearing — drop it and the service state freezes on screen
+  /// while the real service keeps toggling.
+  Widget _buildServiceRow(BuildContext context, bool compact) {
+    return Obx(() {
+      final running = !svcStopped.value;
+      return Container(
+        height: compact ? 38 : 44,
+        padding: const EdgeInsetsDirectional.only(start: 10, end: 10),
+        child: Row(
+          children: [
+            _PulseDot(active: running),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    running
+                        ? translate('Ready')
+                        : translate('Service is not running'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.15,
+                      fontWeight: FontWeight.w700,
+                      color: MyTheme.textMain(context),
+                    ),
+                  ),
+                  Text(
+                    running
+                        ? translate('Service is running')
+                        : translate('Start service'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      height: 1.25,
+                      color: MyTheme.textMuted(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  /// Bottom-pinned 40px dashed chip. There is no login FFI to invent here: it
+  /// opens the account tab of the settings page, the same page the gear opens.
+  /// switch2page no-ops when the tab is absent, so a disabled-account build
+  /// cannot land on a missing page.
+  Widget buildAccountChip(BuildContext context) {
+    if (bind.isDisableAccount()) {
+      return const SizedBox.shrink();
+    }
+    return Obx(() {
+      final name = gFFI.userModel.userName.value;
+      final signedIn = name.isNotEmpty;
+      final color = _accountHover.value || signedIn
+          ? MyTheme.textMain(context)
+          : MyTheme.textMuted(context);
+      return Container(
+        height: 40,
+        margin: const EdgeInsetsDirectional.only(
+            start: 12, end: 11, top: 2, bottom: 10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(MyTheme.snRadiusSm),
+          onTap: () => DesktopSettingPage.switch2page(SettingsTabKey.account),
+          onHover: (value) => _accountHover.value = value,
+          child: CustomPaint(
+            painter: _DashedBorderPainter(
+              color: _accountHover.value
+                  ? MyTheme.line2(context)
+                  : MyTheme.line(context),
+              radius: MyTheme.snRadiusSm,
+            ),
+            child: Center(
+              child: Padding(
+                padding:
+                    const EdgeInsetsDirectional.only(start: 10, end: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(signedIn ? Icons.person : Icons.person_outline,
+                        size: 16, color: color),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        signedIn ? name : translate('Login'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: color),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
   buildRightPane(BuildContext context) {
     return Container(
       color: Colors.transparent,
@@ -194,73 +615,41 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  buildIDBoard(BuildContext context) {
+  /// The INSTRUMENT layer: device ID and one-time password on one always-dark,
+  /// LTR-locked plate. Replaces the two separate GlassContainers that used to
+  /// live here — those put two live BackdropFilters inside the left pane's
+  /// scroller, so they re-rasterised on every scroll frame.
+  /// [margin] defaults to the standalone insets the incoming-only pane needs.
+  /// Hero A passes EdgeInsets.zero because the sheet owns the insets there.
+  buildIDBoard(BuildContext context, {EdgeInsetsGeometry? margin}) {
     final model = gFFI.serverModel;
-    return GlassContainer(
-      margin: const EdgeInsets.only(left: 12, right: 11, top: 4, bottom: 4),
-      borderRadius: 14,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      height: 57,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Container(
-            width: 2,
-            decoration: const BoxDecoration(color: MyTheme.accent),
-          ).marginOnly(top: 5),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 25,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          translate("ID"),
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.color
-                                  ?.withOpacity(0.5)),
-                        ).marginOnly(top: 5),
-                        buildPopupMenu(context)
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: GestureDetector(
-                      onDoubleTap: () {
-                        Clipboard.setData(
-                            ClipboardData(text: model.serverId.text));
-                        showToast(translate("Copied"));
-                      },
-                      child: TextFormField(
-                        controller: model.serverId,
-                        readOnly: true,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.only(top: 10, bottom: 10),
-                        ),
-                        style: TextStyle(
-                          fontSize: 22,
-                        ),
-                      ).workaroundFreezeLinuxMint(),
-                    ),
-                  )
-                ],
+    return InstrumentPlate(
+      margin: margin ??
+          const EdgeInsetsDirectional.only(
+              start: 12, end: 11, top: 4, bottom: 6),
+      children: [
+        InstrumentField(
+          label: translate("ID"),
+          value: GestureDetector(
+            onDoubleTap: () {
+              Clipboard.setData(ClipboardData(text: model.serverId.text));
+              showToast(translate("Copied"));
+            },
+            child: TextFormField(
+              controller: model.serverId,
+              readOnly: true,
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 2),
               ),
-            ),
+              style: InstrumentField.valueStyle(),
+            ).workaroundFreezeLinuxMint(),
           ),
-        ],
-      ),
+          actions: [buildPopupMenu(context)],
+        ),
+        buildPasswordBoard(context),
+      ],
     );
   }
 
@@ -299,146 +688,59 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ));
   }
 
+  /// Renders as a row INSIDE the instrument plate built by [buildIDBoard] —
+  /// it no longer carries its own container. Kept as a separate method so the
+  /// ChangeNotifierProvider + Consumer<ServerModel> plumbing above still drives
+  /// rebuilds (serverPasswd is a plain TextEditingController updated by
+  /// ServerModel's timer, so this cannot collapse to an Obx).
   buildPasswordBoard2(BuildContext context, ServerModel model) {
-    RxBool refreshHover = false.obs;
-    RxBool editHover = false.obs;
-    final textColor = Theme.of(context).textTheme.titleLarge?.color;
     final showOneTime = model.approveMode != 'click' &&
         model.verificationMethod != kUsePermanentPassword;
-    return GlassContainer(
-      margin: const EdgeInsets.only(left: 12, right: 11, top: 6, bottom: 6),
-      borderRadius: 14,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Container(
-            width: 2,
-            height: 52,
-            decoration: BoxDecoration(color: MyTheme.accent),
+    return InstrumentField(
+      label: translate("One-time Password"),
+      accent: true,
+      bottomGap: 0,
+      value: GestureDetector(
+        onDoubleTap: () {
+          if (showOneTime) {
+            Clipboard.setData(ClipboardData(text: model.serverPasswd.text));
+            showToast(translate("Copied"));
+          }
+        },
+        child: TextFormField(
+          controller: model.serverPasswd,
+          readOnly: true,
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(vertical: 2),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AutoSizeText(
-                    translate("One-time Password"),
-                    style: TextStyle(
-                        fontSize: 14, color: textColor?.withOpacity(0.5)),
-                    maxLines: 1,
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onDoubleTap: () {
-                            if (showOneTime) {
-                              Clipboard.setData(
-                                  ClipboardData(text: model.serverPasswd.text));
-                              showToast(translate("Copied"));
-                            }
-                          },
-                          child: TextFormField(
-                            controller: model.serverPasswd,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding:
-                                  EdgeInsets.only(top: 14, bottom: 10),
-                            ),
-                            style: TextStyle(fontSize: 15),
-                          ).workaroundFreezeLinuxMint(),
-                        ),
-                      ),
-                      if (showOneTime)
-                        AnimatedRotationWidget(
-                          onPressed: () => bind.mainUpdateTemporaryPassword(),
-                          child: Tooltip(
-                            message: translate('Refresh Password'),
-                            child: Obx(() => RotatedBox(
-                                quarterTurns: 2,
-                                child: Icon(
-                                  Icons.refresh,
-                                  color: refreshHover.value
-                                      ? textColor
-                                      : Color(0xFFDDDDDD),
-                                  size: 22,
-                                ))),
-                          ),
-                          onHover: (value) => refreshHover.value = value,
-                        ).marginOnly(right: 8, top: 4),
-                      if (!bind.isDisableSettings())
-                        InkWell(
-                          child: Tooltip(
-                            message: translate('Change Password'),
-                            child: Obx(
-                              () => Icon(
-                                Icons.edit,
-                                color: editHover.value
-                                    ? textColor
-                                    : Color(0xFFDDDDDD),
-                                size: 22,
-                              ).marginOnly(right: 8, top: 4),
-                            ),
-                          ),
-                          onTap: () => DesktopSettingPage.switch2page(
-                              SettingsTabKey.safety),
-                          onHover: (value) => editHover.value = value,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          style: InstrumentField.valueStyle(accent: true),
+        ).workaroundFreezeLinuxMint(),
       ),
+      actions: [
+        if (showOneTime)
+          InstrumentAction(
+            tooltip: translate('Refresh Password'),
+            onTap: () => bind.mainUpdateTemporaryPassword(),
+            icon: const RotatedBox(
+                quarterTurns: 2, child: Icon(Icons.refresh, size: 13)),
+          ),
+        if (!bind.isDisableSettings())
+          InstrumentAction(
+            tooltip: translate('Change Password'),
+            onTap: () =>
+                DesktopSettingPage.switch2page(SettingsTabKey.safety),
+            icon: const Icon(Icons.edit, size: 13),
+          ),
+      ],
     );
   }
 
-  buildTip(BuildContext context) {
-    final isOutgoingOnly = bind.isOutgoingOnly();
-    return Padding(
-      padding:
-          const EdgeInsets.only(left: 20.0, right: 16, top: 16.0, bottom: 5),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Column(
-            children: [
-              if (!isOutgoingOnly)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    translate("Your Desktop"),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(
-            height: 10.0,
-          ),
-          if (!isOutgoingOnly)
-            Text(
-              translate("desk_tip"),
-              overflow: TextOverflow.clip,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          if (isOutgoingOnly)
-            Text(
-              translate("outgoing_only_desk_tip"),
-              overflow: TextOverflow.clip,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-        ],
-      ),
-    );
-  }
+  // buildTip is gone, but both of its strings are back: "Your Desktop" is the
+  // hero header's title and desk_tip is the 13px help glyph beside it. As a
+  // Tooltip it costs 0px of vertical rail, where the old inline two-line body
+  // cost 28px in fa/tr and made the panel height locale-dependent.
 
   Widget buildHelpCards(String updateUrl) {
     if (!bind.isCustomClient() &&
@@ -616,16 +918,21 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           margin: EdgeInsets.fromLTRB(
               0, marginTop, 0, bind.isIncomingOnly() ? marginTop : 0),
           child: Container(
+              // Was a full-bleed magenta->coral gradient with blanket white
+              // text — the loudest thing on the screen and nowhere near the
+              // brand. This is an advisory, so give it advisory weight: an
+              // amber-tinted card with a hairline, on the brand palette.
               decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
-                ],
-              )),
-              padding: EdgeInsets.all(20),
+                borderRadius: BorderRadius.circular(MyTheme.snRadius),
+                border: Border.all(color: const Color(0x47FBBF24), width: 1),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x1AFBBF24), Color(0x0AFBBF24)],
+                ),
+              ),
+              margin: const EdgeInsetsDirectional.only(start: 12, end: 11),
+              padding: EdgeInsets.all(16),
               child: Column(
                   mainAxisAlignment: MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -635,7 +942,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   child: Text(
                                 translate(title),
                                 style: TextStyle(
-                                    color: Colors.white,
+                                    color: MyTheme.textMain(context),
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15),
                               ).marginOnly(bottom: 6)),
@@ -647,7 +954,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                             translate(content),
                             style: TextStyle(
                                 height: 1.5,
-                                color: Colors.white,
+                                color: MyTheme.textMain(context),
                                 fontWeight: FontWeight.normal,
                                 fontSize: 13),
                           ).marginOnly(bottom: 20)
@@ -662,8 +969,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                       padding: 8,
                                       isOutline: true,
                                       text: translate(btnText),
-                                      textColor: Colors.white,
-                                      borderColor: Colors.white,
+                                      textColor: MyTheme.textMain(context),
+                                      borderColor: MyTheme.line2(context),
                                       textSize: 20,
                                       radius: 10,
                                       onTap: onPressed,
@@ -682,20 +989,22 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                         style: TextStyle(
                                             decoration:
                                                 TextDecoration.underline,
-                                            color: Colors.white,
+                                            color: MyTheme.textMain(context),
                                             fontSize: 12),
                                       )).marginOnly(top: 6)),
                             ]
                           : <Widget>[]))),
         ),
         if (closeButton != null && closeButton == true)
-          Positioned(
+          PositionedDirectional(
             top: 18,
-            right: 0,
+            end: 0,
             child: IconButton(
               icon: Icon(
                 Icons.close,
-                color: Colors.white,
+                // Was Colors.white — invisible on the amber card in the light
+                // theme, which is the default.
+                color: MyTheme.textMuted(context),
                 size: 20,
               ),
               onPressed: closeCard,
@@ -719,6 +1028,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (v != svcStopped.value) {
         svcStopped.value = v;
         setState(() {});
+      }
+      // No new timer: five sync config reads folded into the tick that already
+      // does two. This keeps the pinned permissions row honest when the Safety
+      // tab writes the same five options from another window.
+      if (isDesktop || isWebDesktop) {
+        final sig = snAccessSignature();
+        if (sig != _accessSig) {
+          _accessSig = sig;
+          gFFI.serverModel.syncIncomingPermissions();
+          if (mounted) setState(() {});
+        }
       }
       if (watchIsCanScreenRecording) {
         if (bind.mainIsCanScreenRecording(prompt: false)) {
@@ -916,6 +1236,129 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
     );
   }
+}
+
+/// Green status dot with a slow expanding halo while the service is up.
+/// RepaintBoundary'd: it ticks every frame, and without one it would dirty the
+/// whole rail — including the notice-stack scroller — on each pulse.
+class _PulseDot extends StatefulWidget {
+  const _PulseDot({Key? key, required this.active}) : super(key: key);
+
+  final bool active;
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1800));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _PulseDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!widget.active && _controller.isAnimating) {
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.active ? MyTheme.snGreen : MyTheme.textDim(context);
+    return RepaintBoundary(
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            final t = Curves.easeOut.transform(_controller.value);
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                if (widget.active)
+                  Container(
+                    width: 8 + 10 * t,
+                    height: 8 + 10 * t,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: color.withOpacity(0.30 * (1 - t)),
+                    ),
+                  ),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration:
+                      BoxDecoration(shape: BoxShape.circle, color: color),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Dashed rounded outline. Flutter has no dashed BorderSide, and a DottedBorder
+/// package dependency is not worth one chip.
+class _DashedBorderPainter extends CustomPainter {
+  const _DashedBorderPainter({required this.color, required this.radius});
+
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 1 || size.height <= 1) {
+      return;
+    }
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    // Inset by half the stroke so the dashes stay inside the chip's box.
+    final path = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(0.5, 0.5, size.width - 1, size.height - 1),
+        Radius.circular(radius),
+      ));
+    const dash = 5.0;
+    const gap = 4.0;
+    for (final metric in path.computeMetrics()) {
+      var start = 0.0;
+      while (start < metric.length) {
+        final end = start + dash;
+        canvas.drawPath(
+            metric.extractPath(
+                start, end > metric.length ? metric.length : end),
+            paint);
+        start = end + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedBorderPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }
 
 void setPasswordDialog({VoidCallback? notEmptyCallback}) async {

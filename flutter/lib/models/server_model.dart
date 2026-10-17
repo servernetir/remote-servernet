@@ -360,6 +360,51 @@ class ServerModel with ChangeNotifier {
     }
   }
 
+  /// DESKTOP/WEB-DESKTOP ONLY. Pull the four incoming-permission options into
+  /// the model's mirrors so they stop lying.
+  ///
+  /// `_inputOk/_clipboardOk/_fileOk/_audioOk` are initialised on Android by
+  /// [checkAndroidPermission] (whose only caller is mobile/pages/server_page)
+  /// and by [changeStatue]. Nothing ever initialised them on desktop, so they
+  /// all read `false` while the underlying options are ENABLED — [option2bool]
+  /// makes any `enable-*` key true unless its value is literally "N". A UI that
+  /// rendered the mirrors would show a fresh Windows install as fully locked
+  /// down when it is in fact fully open.
+  void syncIncomingPermissions() {
+    if (!(isDesktop || isWebDesktop)) return; // Android owns these via OS grants
+    final input = mainGetBoolOptionSync(kOptionEnableKeyboard);
+    final clip = mainGetBoolOptionSync(kOptionEnableClipboard);
+    final file = mainGetBoolOptionSync(kOptionEnableFileTransfer);
+    final audio = mainGetBoolOptionSync(kOptionEnableAudio);
+    if (input == _inputOk &&
+        clip == _clipboardOk &&
+        file == _fileOk &&
+        audio == _audioOk) {
+      return;
+    }
+    _inputOk = input;
+    _clipboardOk = clip;
+    _fileOk = file;
+    _audioOk = audio;
+    notifyListeners();
+  }
+
+  /// The single write path for the four incoming permissions on desktop.
+  ///
+  /// Deliberately NOT [toggleInput]: on desktop `_inputOk` is permanently
+  /// false, so toggleInput() takes its else branch and opens
+  /// showInputWarnAlert — the Android accessibility dialog. Deliberately NOT
+  /// `changeStatue('input', v)` either: that guards its write with
+  /// `if (_inputOk != value)`, which silently swallows the first write against
+  /// an unseeded mirror.
+  ///
+  /// Never hand-write `'Y'`/`'N'` here — [bool2option] is the only thing that
+  /// knows `defaultOptionYes` is `''` for non-custom clients.
+  Future<void> setIncomingPermission(String optionKey, bool value) async {
+    await mainSetBoolOption(optionKey, value);
+    syncIncomingPermissions(); // notifies
+  }
+
   Future<bool> checkRequestNotificationPermission() async {
     debugPrint("androidVersion $androidVersion");
     if (androidVersion < 33) {

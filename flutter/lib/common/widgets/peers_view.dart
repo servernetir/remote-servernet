@@ -21,6 +21,14 @@ import 'peer_card.dart';
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
 
+/// DECK row pitch for the desktop peer list. This is the *real* pitch: the row
+/// carries no vertical margin, so 44 here is 44 on screen.
+const double kPeerRowHeight = 44.0;
+
+/// DECK column header. The column widths themselves live in peer_card.dart so
+/// the rows and this header cannot drift apart.
+const double kPeerColumnHeaderHeight = 30.0;
+
 class PeerSortType {
   static const String remoteId = 'Remote ID';
   static const String remoteHost = 'Remote Host';
@@ -185,9 +193,10 @@ class _PeersViewState extends State<_PeersView>
     return ChangeNotifierProvider<Peers>.value(
       value: widget.peers,
       child: Consumer<Peers>(builder: (context, peers, child) {
+        final Widget body;
         if (peers.peers.isEmpty) {
           gFFI.peerTabModel.setCurrentTabCachedPeers([]);
-          return Center(
+          body = Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -209,9 +218,86 @@ class _PeersViewState extends State<_PeersView>
             ),
           );
         } else {
-          return _buildPeersView(peers);
+          body = _buildPeersView(peers);
         }
+        // The header is hoisted above the empty-state branch on purpose: if it
+        // lived inside _buildPeersView it would vanish the moment a tab went
+        // empty and the deck would jump by kPeerColumnHeaderHeight.
+        return Obx(() => Column(
+              children: [
+                if (_showColumnHeader) _buildColumnHeader(context),
+                Expanded(child: body),
+              ],
+            ));
       }),
+    );
+  }
+
+  /// Read inside an Obx: the header follows the same two observables as the
+  /// three-way list/grid/tile switch, so it hides itself in portrait, grid and
+  /// tile mode without a second code path.
+  ///
+  /// Order matters. `Obx` throws if its builder reads no observable, so the
+  /// platform test has to come last — leading with it would short-circuit the
+  /// whole expression on mobile and take the Rx reads with it.
+  bool get _showColumnHeader =>
+      stateGlobal.isPortrait.isFalse &&
+      peerCardUiType.value == PeerUiType.list &&
+      (isDesktop || isWebDesktop);
+
+  /// 30px DECK header. Deliberately reads `gFFI.peerTabModel` nowhere and
+  /// `Provider.of<PeerTabModel>(context)` never — subscribing here would
+  /// re-enter the notifyListeners() fired by setCurrentTabCachedPeers().
+  Widget _buildColumnHeader(BuildContext context) {
+    final labelStyle = TextStyle(
+      fontSize: 11,
+      height: 1.2,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+      color: MyTheme.textDim(context),
+    );
+    Widget label(String key) => Text(
+          translate(key),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: labelStyle,
+        );
+    Widget cell(String key, double width) =>
+        SizedBox(width: width, child: label(key));
+    return Container(
+      height: kPeerColumnHeaderHeight,
+      decoration: BoxDecoration(
+        color: MyTheme.deck(context),
+        border: Border(
+          bottom: BorderSide(color: MyTheme.line(context), width: 1),
+        ),
+      ),
+      padding: EdgeInsetsDirectional.only(
+        start:
+            kPeerRowAccentWidth + kPeerRowPadStart + kPeerColTile + kPeerColGap,
+        // The trailing gutter now lives on the ListView, so the header has to
+        // repeat it or the last column drifts off the rows by `space`.
+        end: kPeerRowPadEnd + space,
+      ),
+      // This padding excludes exactly the same chrome the row's LayoutBuilder
+      // subtracts, so both sides measure the identical `cellsWidth` and drop
+      // the same columns on a narrow window.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cellsWidth = constraints.maxWidth;
+          return Row(
+            children: [
+              Expanded(child: label('Name')),
+              SizedBox(width: kPeerColGap),
+              if (peerShowIdColumn(cellsWidth)) cell('ID', kPeerColId),
+              cell('Status', kPeerColStatus),
+              if (peerShowLastSeenColumn(cellsWidth))
+                cell('Last seen', kPeerColLastSeen),
+              SizedBox(width: kPeerColMore),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -251,7 +337,11 @@ class _PeersViewState extends State<_PeersView>
               // and the peers change event will trigger _buildPeersView().
               return !isPortrait
                   ? Obx(() => peerCardUiType.value == PeerUiType.list
-                      ? Container(height: 45, child: visibilityChild)
+                      ? Container(
+                          height: (isDesktop || isWebDesktop)
+                              ? kPeerRowHeight
+                              : 45,
+                          child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
                           ? SizedBox(
                               width: 220, height: 140, child: visibilityChild)
@@ -274,12 +364,23 @@ class _PeersViewState extends State<_PeersView>
                 : peerCardUiType.value == PeerUiType.list
                     ? ListView.builder(
                         controller: _scrollController,
+                        // The trailing gutter belongs to the viewport, not to
+                        // each row: on the row it sat inside the hover fill and
+                        // it does not mirror under RTL. The vertical margins
+                        // are gone entirely — with space=12 they turned the
+                        // 44px row into a ~57px pitch.
+                        padding: (isDesktop || isWebDesktop)
+                            ? EdgeInsetsDirectional.only(end: space)
+                            : null,
                         itemCount: peers.length,
                         itemBuilder: (BuildContext context, int index) {
-                          return buildOnePeer(peers[index], false).marginOnly(
-                              right: space,
-                              top: index == 0 ? 0 : space / 2,
-                              bottom: space / 2);
+                          final row = buildOnePeer(peers[index], false);
+                          return (isDesktop || isWebDesktop)
+                              ? row
+                              : row.marginOnly(
+                                  right: space,
+                                  top: index == 0 ? 0 : space / 2,
+                                  bottom: space / 2);
                         },
                       )
                     : DynamicGridView.builder(

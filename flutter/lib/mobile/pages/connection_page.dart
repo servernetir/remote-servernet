@@ -229,8 +229,16 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         onChanged: (String text) {
                           _idController.id = text;
                         },
+                        // The field is an LTR island inside an app that may
+                        // be running RTL: a device ID is a machine-readable
+                        // value, so its digits must not be bidi-reordered.
+                        // The label above it stays prose and still mirrors.
+                        textDirection: TextDirection.ltr,
                         style: const TextStyle(
-                          fontFamily: 'WorkSans',
+                          // 'WorkSans' was named here but never bundled, so
+                          // this silently rendered in the platform UI face.
+                          fontFamily: MyTheme.monoFamily,
+                          fontFamilyFallback: MyTheme.monoFallback,
                           fontWeight: FontWeight.bold,
                           fontSize: 30,
                           color: MyTheme.idColor,

@@ -375,6 +375,8 @@ void _runApp(
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      // Drives Directionality: without this, fa renders LTR.
+      locale: currentAppLocale(),
       supportedLocales: supportedLocales,
       navigatorObservers: [
         // FirebaseAnalyticsObserver(analytics: analytics),
@@ -516,6 +518,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
+          // Drives Directionality: without this, fa renders LTR.
+          locale: currentAppLocale(),
           supportedLocales: supportedLocales,
           navigatorObservers: [
             // FirebaseAnalyticsObserver(analytics: analytics),

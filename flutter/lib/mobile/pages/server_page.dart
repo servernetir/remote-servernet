@@ -10,6 +10,9 @@ import 'package:provider/provider.dart';
 
 import '../../common.dart';
 import '../../common/widgets/glass_container.dart';
+import '../../common/widgets/instrument_plate.dart';
+import '../../common/widgets/lumen.dart';
+import '../../common/widgets/permissions_sheet.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
@@ -471,104 +474,131 @@ class ServerInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
 
-    const Color colorPositive = Colors.green;
-    const Color colorNegative = Colors.red;
-    const double iconMarginRight = 15;
-    const double iconSize = 24;
-    const TextStyle textStyleHeading = TextStyle(
-        fontSize: 16.0, fontWeight: FontWeight.bold, color: Colors.grey);
-    const TextStyle textStyleValue =
-        TextStyle(fontSize: 25.0, fontWeight: FontWeight.bold);
-
     void copyToClipboard(String value) {
       Clipboard.setData(ClipboardData(text: value));
       showToast(translate('Copied'));
     }
 
-    Widget ConnectionStateNotification() {
-      if (serverModel.connectStatus == -1) {
-        return Row(children: [
-          const Icon(Icons.warning_amber_sharp,
-                  color: colorNegative, size: iconSize)
-              .marginOnly(right: iconMarginRight),
-          Expanded(child: Text(translate('not_ready_status')))
-        ]);
-      } else if (serverModel.connectStatus == 0) {
-        return Row(children: [
-          SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-              .marginOnly(left: 4, right: iconMarginRight),
-          Expanded(child: Text(translate('connecting_status')))
-        ]);
-      } else {
-        return Row(children: [
-          const Icon(Icons.check, color: colorPositive, size: iconSize)
-              .marginOnly(right: iconMarginRight),
-          Expanded(child: Text(translate('Ready')))
-        ]);
-      }
-    }
-
     final showOneTime = serverModel.approveMode != 'click' &&
         serverModel.verificationMethod != kUsePermanentPassword;
+
     return PaddingCard(
         title: translate('Your Device'),
         child: Column(
-          // ID
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(children: [
-              const Icon(Icons.perm_identity,
-                      color: Colors.grey, size: iconSize)
-                  .marginOnly(right: iconMarginRight),
-              Text(
-                translate('ID'),
-                style: textStyleHeading,
-              )
-            ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                model.serverId.value.text,
-                style: textStyleValue,
-              ),
-              IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.copy_outlined),
-                  onPressed: () {
-                    copyToClipboard(model.serverId.value.text.trim());
-                  })
-            ]).marginOnly(left: 39, bottom: 10),
-            // Password
-            Row(children: [
-              const Icon(Icons.lock_outline, color: Colors.grey, size: iconSize)
-                  .marginOnly(right: iconMarginRight),
-              Text(
-                translate('One-time Password'),
-                style: textStyleHeading,
-              )
-            ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                !showOneTime ? '-' : model.serverPasswd.value.text,
-                style: textStyleValue,
-              ),
-              !showOneTime
-                  ? SizedBox.shrink()
-                  : Row(children: [
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.refresh),
-                          onPressed: () => bind.mainUpdateTemporaryPassword()),
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(Icons.copy_outlined),
-                          onPressed: () {
-                            copyToClipboard(
-                                model.serverPasswd.value.text.trim());
-                          })
-                    ])
-            ]).marginOnly(left: 40, bottom: 15),
-            ConnectionStateNotification()
+            // Both machine-readable values sit on the instrument plate, which
+            // is a Directionality.ltr island — so a Persian user physically
+            // cannot get a device ID rendered with Arabic-Indic digits or
+            // reordered by the bidi algorithm. It also retires the old
+            // .marginOnly(left: 39) indent: that emits a PHYSICAL inset, so it
+            // stayed on the left in RTL instead of mirroring.
+            InstrumentPlate(
+              children: [
+                InstrumentField(
+                  label: translate('ID'),
+                  value: GestureDetector(
+                    onDoubleTap: () =>
+                        copyToClipboard(model.serverId.text.trim()),
+                    child: Text(
+                      model.serverId.text,
+                      style: InstrumentField.valueStyle(),
+                    ),
+                  ),
+                  actions: [
+                    InstrumentAction(
+                      icon: const Icon(Icons.copy_outlined),
+                      tooltip: translate('Copy to clipboard'),
+                      onTap: () => copyToClipboard(model.serverId.text.trim()),
+                    ),
+                  ],
+                ),
+                InstrumentField(
+                  label: translate('One-time Password'),
+                  accent: showOneTime,
+                  bottomGap: 0,
+                  value: GestureDetector(
+                    onDoubleTap: !showOneTime
+                        ? null
+                        : () => copyToClipboard(model.serverPasswd.text.trim()),
+                    child: Text(
+                      !showOneTime ? '-' : model.serverPasswd.text,
+                      style: InstrumentField.valueStyle(accent: showOneTime),
+                    ),
+                  ),
+                  actions: !showOneTime
+                      ? const []
+                      : [
+                          InstrumentAction(
+                            icon: const Icon(Icons.refresh),
+                            tooltip: translate('Refresh Password'),
+                            onTap: () => bind.mainUpdateTemporaryPassword(),
+                          ),
+                          InstrumentAction(
+                            icon: const Icon(Icons.copy_outlined),
+                            tooltip: translate('Copy to clipboard'),
+                            onTap: () =>
+                                copyToClipboard(model.serverPasswd.text.trim()),
+                          ),
+                        ],
+                ),
+              ],
+            ),
+            _ServiceStateLine(status: serverModel.connectStatus)
+                .marginOnly(top: 14),
           ],
         ));
+  }
+}
+
+/// The one prose line on this card: whether the relay is reachable.
+///
+/// It stays off the plate on purpose — it is a sentence, not a value, so it
+/// follows the reading direction and uses directional insets.
+class _ServiceStateLine extends StatelessWidget {
+  const _ServiceStateLine({Key? key, required this.status}) : super(key: key);
+
+  /// ServerModel.connectStatus: -1 failed, 0 connecting, 1 ready.
+  final int status;
+
+  @override
+  Widget build(BuildContext context) {
+    late final Widget mark;
+    late final String label;
+    switch (status) {
+      case -1:
+        mark = const Icon(Icons.warning_amber_rounded,
+            color: MyTheme.snAmber, size: 20);
+        label = translate('not_ready_status');
+        break;
+      case 0:
+        mark = const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2));
+        label = translate('connecting_status');
+        break;
+      default:
+        mark = const Icon(Icons.check_circle_outline,
+            color: MyTheme.snGreen, size: 20);
+        label = translate('Ready');
+    }
+    return Row(
+      children: [
+        SizedBox(width: 20, height: 20, child: Center(child: mark)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.45,
+              color: Theme.of(context).textTheme.bodyMedium?.color,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -594,83 +624,200 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     final permissionChangeLocked = isAndroid &&
         serverModel.clients.any((c) => !c.disconnected) &&
         !allowPermChangeInAcceptWindow;
+
+    // The four capability rows carry the SAME brand hue as their desktop
+    // counterparts in permissions_sheet.dart, so one product speaks one colour
+    // language: input blue, clipboard cyan, file violet, audio green.
+    //
+    // Screen Capture is deliberately NOT given a fifth hue. It is the service
+    // master, not a capability — with it off the other four cannot do anything
+    // — so it sits above the well instead of competing inside it.
+    final capabilities = <Widget>[
+      PermissionRow(
+        translate("Input Control"),
+        serverModel.inputOk,
+        serverModel.toggleInput,
+        icon: Icons.keyboard,
+        accent: MyTheme.snBlue,
+      ),
+      PermissionRow(
+        translate("Enable clipboard"),
+        serverModel.clipboardOk,
+        serverModel.toggleClipboard,
+        icon: Icons.content_paste,
+        accent: MyTheme.snCyan,
+        enabled: !permissionChangeLocked,
+      ),
+      PermissionRow(
+        translate("Transfer file"),
+        serverModel.fileOk,
+        serverModel.toggleFile,
+        icon: Icons.folder_outlined,
+        accent: MyTheme.snViolet,
+        enabled: !permissionChangeLocked,
+      ),
+      if (hasAudioPermission)
+        PermissionRow(
+          translate("Audio Capture"),
+          serverModel.audioOk,
+          serverModel.toggleAudio,
+          icon: Icons.volume_up_outlined,
+          accent: MyTheme.snGreen,
+          enabled: !permissionChangeLocked,
+          last: true,
+        )
+      else
+        _PermissionNote(text: translate("android_version_audio_tip")),
+    ];
+
     return PaddingCard(
         title: translate("Permissions"),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          serverModel.mediaOk && !hideStopService
-              ? ElevatedButton.icon(
-                      style: ButtonStyle(
-                          backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
-                      icon: const Icon(Icons.stop),
-                      onPressed: serverModel.toggleService,
-                      label: Text(translate("Stop service")))
-                  .marginOnly(bottom: 8)
-              : SizedBox.shrink(),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (serverModel.mediaOk && !hideStopService)
+            ElevatedButton.icon(
+                    style: ButtonStyle(
+                        backgroundColor:
+                            MaterialStateProperty.all(const Color(0xFFDC2626))),
+                    icon: const Icon(Icons.stop),
+                    onPressed: serverModel.toggleService,
+                    label: Text(translate("Stop service")))
+                .marginOnly(bottom: 10),
           if (!hideStopService || !serverModel.mediaOk)
             PermissionRow(
-                translate("Screen Capture"),
-                serverModel.mediaOk,
-                !serverModel.mediaOk &&
-                        gFFI.userModel.userName.value.isEmpty &&
-                        bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-                    ? () => showScamWarning(context, serverModel)
-                    : serverModel.toggleService),
-          PermissionRow(
-            translate("Input Control"),
-            serverModel.inputOk,
-            serverModel.toggleInput,
-          ),
-          PermissionRow(
-            translate("Transfer file"),
-            serverModel.fileOk,
-            serverModel.toggleFile,
-            enabled: !permissionChangeLocked,
-          ),
-          hasAudioPermission
-              ? PermissionRow(translate("Audio Capture"), serverModel.audioOk,
-                  serverModel.toggleAudio,
-                  enabled: !permissionChangeLocked)
-              : Row(children: [
-                  Icon(Icons.info_outline).marginOnly(right: 15),
-                  Expanded(
-                      child: Text(
-                    translate("android_version_audio_tip"),
-                    style: const TextStyle(color: MyTheme.darkGray),
-                  ))
-                ]),
-          PermissionRow(
-            translate("Enable clipboard"),
-            serverModel.clipboardOk,
-            serverModel.toggleClipboard,
-            enabled: !permissionChangeLocked,
-          ),
+              translate("Screen Capture"),
+              serverModel.mediaOk,
+              !serverModel.mediaOk &&
+                      gFFI.userModel.userName.value.isEmpty &&
+                      bind.mainGetLocalOption(key: "show-scam-warning") != "N"
+                  ? () => showScamWarning(context, serverModel)
+                  : serverModel.toggleService,
+              icon: Icons.screen_share_outlined,
+              accent: MyTheme.snCyan,
+              master: true,
+            ).marginOnly(bottom: 10),
+          // Inputs belong in a recessed well — that is the LUMEN role for
+          // anything that takes a touch.
+          LumenWell(children: capabilities),
         ]));
   }
 }
 
+/// One permission row.
+///
+/// Restyled only: the callbacks still run ServerModel.toggleInput/Clipboard/
+/// File/Audio, which on Android drive the real runtime-permission flow. Those
+/// four are NOT the desktop `enable-*` options and must not be swapped for
+/// them — the mobile server page is the only caller of
+/// checkAndroidPermission(), so these mirrors are authoritative here.
 class PermissionRow extends StatelessWidget {
   const PermissionRow(this.name, this.isOk, this.onPressed,
-      {Key? key, this.enabled = true})
+      {Key? key,
+      required this.icon,
+      required this.accent,
+      this.enabled = true,
+      this.master = false,
+      this.last = false})
       : super(key: key);
 
   final String name;
   final bool isOk;
   final VoidCallback onPressed;
+  final IconData icon;
+  final Color accent;
   final bool enabled;
+
+  /// The service master sits in a well of its own, above the capabilities.
+  final bool master;
+
+  /// Suppresses the divider on the final row inside a well.
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-        visualDensity: VisualDensity.compact,
-        contentPadding: EdgeInsets.all(0),
-        title: Text(name),
-        value: isOk,
-        onChanged: enabled
-            ? (bool value) {
-                onPressed();
-              }
-            : null);
+    final row = Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 11, 10, 11),
+      child: Row(
+        children: [
+          LumenGlyphCell(icon: icon, on: isOk, accent: accent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              name,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: master ? FontWeight.w600 : FontWeight.w500,
+                color: !enabled
+                    ? MyTheme.textDim(context)
+                    : Theme.of(context).textTheme.bodyLarge?.color,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          LumenSwitch(
+            on: isOk,
+            accent: accent,
+            onChanged: enabled ? (_) => onPressed() : null,
+          ),
+        ],
+      ),
+    );
+
+    final tappable = InkWell(onTap: enabled ? onPressed : null, child: row);
+
+    if (master) {
+      return LumenWell(children: [tappable]);
+    }
+    if (last) {
+      return tappable;
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        tappable,
+        // Hairline between rows, inset to the text column so the group reads as
+        // one list rather than a stack of boxes. Directional on purpose: the
+        // inset has to follow the reading direction.
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 44),
+          child: Container(
+            height: 1,
+            color: lumenDark(context)
+                ? const Color(0x14FFFFFF)
+                : const Color(0x0F0F172A),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Shown instead of the audio row on Android below 11, where the platform has
+/// no capture permission to ask for.
+class _PermissionNote extends StatelessWidget {
+  const _PermissionNote({Key? key, required this.text}) : super(key: key);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 11, 12, 11),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: MyTheme.textDim(context)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                  fontSize: 13, height: 1.5, color: MyTheme.textDim(context)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

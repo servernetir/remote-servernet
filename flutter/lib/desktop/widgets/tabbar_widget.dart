@@ -22,9 +22,29 @@ import 'package:visibility_detector/visibility_detector.dart';
 import '../../utils/multi_window_manager.dart';
 
 const double _kTabBarHeight = kDesktopRemoteTabBarHeight;
+
+/// FRAME height of the main window's title bar.
+///
+/// Fork-local on purpose: [kDesktopRemoteTabBarHeight] is *session geometry* —
+/// remote cursor mapping subtracts it from the canvas origin — so it has to
+/// stay 28 for every session window. Only the main window gets the taller
+/// branded frame.
+const double kSnFrameHeight = 40.0;
 const double _kIconSize = 18;
 const double _kDividerIndent = 10;
 const double _kActionIconSize = 12;
+
+/// macOS parks the traffic lights at a fixed inset from the left edge and only
+/// re-centres them vertically, so the 78px gutter tuned for the 28px strip
+/// still clears them on the 40px frame. The main window gets a few px more
+/// purely so the brand logo does not crowd them.
+const double _kMacOSTrafficLightGutter = 78;
+const double _kMacOSTrafficLightGutterMain = 84;
+
+/// Bar height by window role. Main window = branded FRAME, every session
+/// window keeps the strip its geometry is measured against.
+double _snTabBarHeight(DesktopTabType tabType) =>
+    tabType == DesktopTabType.main ? kSnFrameHeight : _kTabBarHeight;
 
 class TabInfo {
   final String key; // Notice: cm use client_id.toString() as key
@@ -515,18 +535,53 @@ class _DesktopTabState extends State<DesktopTab>
         if (stateGlobal.showTabBar.isTrue &&
             !(kUseCompatibleUiMode && isHideSingleItem())) {
           final showBottomDivider = _showTabBarBottomDivider(tabType);
+          final barHeight = _snTabBarHeight(tabType);
+          // FRAME layer, main window only. This is one of the three live
+          // BackdropFilters the app is allowed, and it is deliberately a
+          // Positioned.fill SIBLING *behind* the bar rather than an ancestor
+          // of it: the tab strip is a real horizontally scrolling ListView
+          // driven by a wheel Listener, and a blur above it would
+          // re-rasterise the whole strip on every scroll tick.
+          final isGlassFrame = tabType == DesktopTabType.main;
           return SizedBox(
-            height: _kTabBarHeight,
-            child: Column(
+            height: barHeight,
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                SizedBox(
-                  height:
-                      showBottomDivider ? _kTabBarHeight - 1 : _kTabBarHeight,
+                if (isGlassFrame)
+                  Positioned.fill(
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: MyTheme.frameTint(context),
+                            border: Border(
+                              bottom: BorderSide(
+                                color: MyTheme.line(context),
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned.fill(
+                  bottom: showBottomDivider ? 1 : 0,
                   child: _buildBar(),
                 ),
-                if (showBottomDivider)
-                  const Divider(
+                // Explicit hairline instead of a Material Divider, whose
+                // colour comes from DividerTheme and is not brand-mapped. The
+                // glass frame paints its own as a border, so only the
+                // non-glass windows need this.
+                if (showBottomDivider && !isGlassFrame)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
                     height: 1,
+                    child: ColoredBox(color: MyTheme.line(context)),
                   ),
               ],
             ),
@@ -594,7 +649,19 @@ class _DesktopTabState extends State<DesktopTab>
 
   Widget _buildBar() {
     final isIncomingHomePage = bind.isIncomingOnly() && isInHomePage();
-    return Row(
+    // The window chrome is the one surface that deliberately does NOT mirror
+    // under RTL: Windows always puts minimise/maximise/close on the right, and
+    // detaching the app's own controls from them looks broken. The GetX
+    // .paddingOnly/.marginOnly calls in this file emit physical EdgeInsets and
+    // never mirror anyway, so a partial lock would leave the bar inconsistent.
+    // Tab labels re-open a direction-aware scope further down: this `context`
+    // still sits ABOVE the lock, so it is the only place that can read what
+    // the app's real direction is and hand it to the labels.
+    final labelDirection = Directionality.maybeOf(context) ?? TextDirection.ltr;
+    final isMainFrame = tabType == DesktopTabType.main;
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(
       children: [
         Expanded(
             child: GestureDetector(
@@ -628,25 +695,34 @@ class _DesktopTabState extends State<DesktopTab>
                   children: [
                     Offstage(
                         offstage: !isMacOS,
-                        child: const SizedBox(
-                          width: 78,
+                        child: SizedBox(
+                          width: isMainFrame
+                              ? _kMacOSTrafficLightGutterMain
+                              : _kMacOSTrafficLightGutter,
                         )),
                     Offstage(
                       offstage: kUseCompatibleUiMode || isMacOS,
                       child: Row(children: [
                         Offstage(
                           offstage: !showLogo,
-                          child: loadIcon(16),
+                          child: loadIcon(isMainFrame ? 20 : 16),
                         ),
                         Offstage(
-                            offstage: !showTitle,
+                            // The 40px frame carries the wordmark beside the
+                            // mark, as the approved chrome specifies. Session
+                            // windows keep whatever their page asked for.
+                            offstage: !(showTitle || isMainFrame),
                             child: Text(
                               bind.mainGetAppNameSync(),
-                              style: const TextStyle(fontSize: 13),
-                            ).marginOnly(left: 2))
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: MyTheme.textMain(context),
+                              ),
+                            ).marginOnly(left: isMainFrame ? 8 : 2))
                       ]).marginOnly(
-                        left: 5,
-                        right: 10,
+                        left: isMainFrame ? 12 : 5,
+                        right: isMainFrame ? 14 : 10,
                       ),
                     ),
                     Expanded(
@@ -666,18 +742,23 @@ class _DesktopTabState extends State<DesktopTab>
                                 });
                               }
                             },
-                            child: _ListView(
-                              controller: controller,
-                              invisibleTabKeys: invisibleTabKeys,
-                              tabBuilder: tabBuilder,
-                              tabMenuBuilder: tabMenuBuilder,
-                              labelGetter: labelGetter,
-                              maxLabelWidth: maxLabelWidth,
-                              selectedTabBackgroundColor:
-                                  selectedTabBackgroundColor,
-                              unSelectedTabBackgroundColor:
-                                  unSelectedTabBackgroundColor,
-                              selectedBorderColor: selectedBorderColor,
+                            // Isolate the scrolling strip from the rest of the
+                            // frame so a wheel tick repaints only this layer.
+                            child: RepaintBoundary(
+                              child: _ListView(
+                                controller: controller,
+                                invisibleTabKeys: invisibleTabKeys,
+                                tabBuilder: tabBuilder,
+                                tabMenuBuilder: tabMenuBuilder,
+                                labelGetter: labelGetter,
+                                labelDirection: labelDirection,
+                                maxLabelWidth: maxLabelWidth,
+                                selectedTabBackgroundColor:
+                                    selectedTabBackgroundColor,
+                                unSelectedTabBackgroundColor:
+                                    unSelectedTabBackgroundColor,
+                                selectedBorderColor: selectedBorderColor,
+                              ),
                             ))),
                   ],
                 ))),
@@ -695,6 +776,7 @@ class _DesktopTabState extends State<DesktopTab>
           labelGetter: labelGetter,
         ).paddingOnly(left: 10)
       ],
+    ),
     );
   }
 }
@@ -752,6 +834,9 @@ class WindowActionPanelState extends State<WindowActionPanel> {
 
   @override
   Widget build(BuildContext context) {
+    // Caption buttons fill the frame instead of floating in the middle of it:
+    // 39 on the main window's 40px FRAME, the unchanged 27 everywhere else.
+    final actionBoxSize = _snTabBarHeight(widget.tabController.tabType) - 1;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -773,6 +858,7 @@ class WindowActionPanelState extends State<WindowActionPanel> {
                 ActionIcon(
                   message: 'Minimize',
                   icon: IconFont.min,
+                  boxSize: actionBoxSize,
                   onTap: () {
                     if (widget.isMainWindow) {
                       windowManager.minimize();
@@ -790,6 +876,7 @@ class WindowActionPanelState extends State<WindowActionPanel> {
                       icon: stateGlobal.isMaximized.isTrue
                           ? IconFont.restore
                           : IconFont.max,
+                      boxSize: actionBoxSize,
                       onTap: bind.isIncomingOnly() && isInHomePage()
                           ? null
                           : _toggleMaximize,
@@ -799,6 +886,7 @@ class WindowActionPanelState extends State<WindowActionPanel> {
                 ActionIcon(
                   message: 'Close',
                   icon: IconFont.close,
+                  boxSize: actionBoxSize,
                   onTap: () async {
                     final res = await widget.onClose?.call() ?? true;
                     if (res) {
@@ -924,6 +1012,9 @@ class _ListView extends StatelessWidget {
   final TabBuilder? tabBuilder;
   final TabMenuBuilder? tabMenuBuilder;
   final LabelGetter? labelGetter;
+
+  /// The app's real text direction, captured above the chrome's LTR lock.
+  final TextDirection labelDirection;
   final double? maxLabelWidth;
   final Color? selectedTabBackgroundColor;
   final Color? selectedBorderColor;
@@ -937,6 +1028,7 @@ class _ListView extends StatelessWidget {
     this.tabBuilder,
     this.tabMenuBuilder,
     this.labelGetter,
+    required this.labelDirection,
     this.maxLabelWidth,
     this.selectedTabBackgroundColor,
     this.unSelectedTabBackgroundColor,
@@ -1007,6 +1099,7 @@ class _ListView extends StatelessWidget {
                     },
                     tabBuilder: tabBuilder,
                     tabMenuBuilder: tabMenuBuilder,
+                    labelDirection: labelDirection,
                     maxLabelWidth: maxLabelWidth,
                     selectedTabBackgroundColor: selectedTabBackgroundColor ??
                         MyTheme.tabbar(context).selectedTabBackgroundColor,
@@ -1035,6 +1128,9 @@ class _Tab extends StatefulWidget {
   final Function() onTap;
   final TabBuilder? tabBuilder;
   final TabMenuBuilder? tabMenuBuilder;
+
+  /// The app's real text direction, captured above the chrome's LTR lock.
+  final TextDirection labelDirection;
   final double? maxLabelWidth;
   final Color? selectedTabBackgroundColor;
   final Color? unSelectedTabBackgroundColor;
@@ -1050,6 +1146,7 @@ class _Tab extends StatefulWidget {
     this.unselectedIcon,
     this.tabBuilder,
     this.tabMenuBuilder,
+    required this.labelDirection,
     required this.closable,
     required this.selected,
     required this.onClose,
@@ -1082,23 +1179,31 @@ class _TabState extends State<_Tab> with RestorationMixin {
               : MyTheme.tabbar(context).unSelectedTabIconColor,
         ).paddingOnly(right: 5));
     final labelWidget = Obx(() {
-      return ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: widget.maxLabelWidth ?? 200),
-          child: Tooltip(
-            message:
-                widget.tabType == DesktopTabType.main ? '' : widget.label.value,
-            child: Text(
-              widget.tabType == DesktopTabType.main
-                  ? translate(widget.label.value)
+      // The chrome around this is pinned to LTR so the window controls never
+      // swap sides, but the label itself is human text: a Persian tab title
+      // bidi-orders wrongly (and ellipsises from the wrong end) unless the
+      // app's real direction is re-opened over the label and its Tooltip.
+      return Directionality(
+        textDirection: widget.labelDirection,
+        child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: widget.maxLabelWidth ?? 200),
+            child: Tooltip(
+              message: widget.tabType == DesktopTabType.main
+                  ? ''
                   : widget.label.value,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: isSelected
-                      ? MyTheme.tabbar(context).selectedTextColor
-                      : MyTheme.tabbar(context).unSelectedTextColor),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ));
+              child: Text(
+                widget.tabType == DesktopTabType.main
+                    ? translate(widget.label.value)
+                    : widget.label.value,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: isSelected
+                        ? MyTheme.tabbar(context).selectedTextColor
+                        : MyTheme.tabbar(context).unSelectedTextColor),
+                overflow: TextOverflow.ellipsis,
+              ),
+            )),
+      );
     });
 
     Widget getWidgetWithBuilder() {
@@ -1171,10 +1276,11 @@ class _TabState extends State<_Tab> with RestorationMixin {
               child: Row(
                 children: [
                   SizedBox(
-                      // _kTabBarHeight also displays normally
+                      // Same height the frame resolved in DesktopTab.build,
+                      // less the hairline where one is drawn.
                       height: _showTabBarBottomDivider(widget.tabType)
-                          ? _kTabBarHeight - 1
-                          : _kTabBarHeight,
+                          ? _snTabBarHeight(widget.tabType) - 1
+                          : _snTabBarHeight(widget.tabType),
                       child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -1455,29 +1561,37 @@ class TabbarTheme extends ThemeExtension<TabbarTheme> {
       required this.closeHoverColor,
       required this.selectedTabBackgroundColor});
 
+  // Brand-mapped. The literals mirror the context-resolved helpers in
+  // MyTheme (textMain / textMuted / line / rowHover) for the matching
+  // brightness, because a ThemeExtension's .light/.dark have to be const and
+  // those helpers take a BuildContext.
   static const light = TabbarTheme(
+      // Stays a const expression: this whole TabbarTheme is const.
       selectedTabIconColor: MyTheme.accent,
-      unSelectedTabIconColor: Color.fromARGB(255, 162, 203, 241),
-      selectedTextColor: Colors.black,
-      unSelectedTextColor: Color.fromARGB(255, 112, 112, 112),
-      selectedIconColor: Color.fromARGB(255, 26, 26, 26),
-      unSelectedIconColor: Color.fromARGB(255, 96, 96, 96),
-      dividerColor: Color.fromARGB(255, 238, 238, 238),
-      hoverColor: Colors.white54,
+      unSelectedTabIconColor: MyTheme.accent50,
+      selectedTextColor: Color(0xFF141A28), // MyTheme.textMain, light
+      unSelectedTextColor: Color(0xFF5A6478), // MyTheme.textMuted, light
+      selectedIconColor: Color(0xFF141A28),
+      unSelectedIconColor: Color(0xFF5A6478),
+      dividerColor: Color(0x1A0F172A), // MyTheme.line, light
+      // Opaque and deck-relative. A translucent white/black wash on a FRAME
+      // surface reads as a second, unblurred pane of glass laid on the first.
+      hoverColor: Color(0xFFEEF2FA), // MyTheme.rowHover, light
       closeHoverColor: Colors.white,
-      selectedTabBackgroundColor: Colors.white54);
+      // The selected tab is the deck surfacing through the frame.
+      selectedTabBackgroundColor: MyTheme.snDeckLight);
 
   static const dark = TabbarTheme(
       selectedTabIconColor: MyTheme.accent,
-      unSelectedTabIconColor: Color.fromARGB(255, 30, 65, 98),
-      selectedTextColor: Colors.white,
-      unSelectedTextColor: Color.fromARGB(255, 192, 192, 192),
-      selectedIconColor: Color.fromARGB(255, 192, 192, 192),
-      unSelectedIconColor: Color.fromARGB(255, 255, 255, 255),
-      dividerColor: Color.fromARGB(255, 64, 64, 64),
-      hoverColor: Colors.black26,
-      closeHoverColor: Colors.black,
-      selectedTabBackgroundColor: Colors.black26);
+      unSelectedTabIconColor: MyTheme.accent50,
+      selectedTextColor: Color(0xFFE6EAF3), // MyTheme.textMain, dark
+      unSelectedTextColor: Color(0xFF8A94AC), // MyTheme.textMuted, dark
+      selectedIconColor: Color(0xFFE6EAF3),
+      unSelectedIconColor: Color(0xFF8A94AC),
+      dividerColor: Color(0x14FFFFFF), // MyTheme.line, dark
+      hoverColor: Color(0xFF101320), // MyTheme.rowHover, dark
+      closeHoverColor: MyTheme.snPlate,
+      selectedTabBackgroundColor: MyTheme.snDeck);
 
   @override
   ThemeExtension<TabbarTheme> copyWith({

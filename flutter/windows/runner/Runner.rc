@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "Servernet.Cloud" "\0"
             VALUE "FileDescription", "Servernet Remote Desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "rustdesk" "\0"
+            VALUE "InternalName", "servernet-remote" "\0"
             VALUE "LegalCopyright", "Copyright © 2026 Servernet.Cloud. All rights reserved." "\0"
-            VALUE "OriginalFilename", "rustdesk.exe" "\0"
+            VALUE "OriginalFilename", "servernet-remote.exe" "\0"
             VALUE "ProductName", "Servernet Remote" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

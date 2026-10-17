@@ -117,8 +117,16 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
-pub const RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
+// Servernet Remote relay. MUST be the public hostname, never the 10.10.10.4
+// private address — that resolves only inside the datacenter LAN and every
+// customer outside it would fail to register.
+pub const RENDEZVOUS_SERVERS: &[&str] = &["remote.servernet.cloud"];
+
+// hbbs public key for the relay above, read from the server at
+// /opt/servernet-remote/data/id_ed25519.pub. Pinning it is what makes the
+// client verify it is talking to OUR relay and not an impostor; with an empty
+// value the client still connects but the relay is unauthenticated.
+pub const RS_PUB_KEY: &str = "wLk5pl2nw5UzDVWNuHsEuoJubLf4rIErmkaypvQKNY8=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;

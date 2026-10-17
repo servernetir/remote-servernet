@@ -25,6 +25,46 @@ final peerCardUiType = PeerUiType.grid.obs;
 
 bool? hideUsernameOnCard;
 
+// ---- DECK list geometry ---------------------------------------------------
+// Shared with peers_view.dart, which paints the column header from these exact
+// numbers. The header and the rows line up by construction, not by luck, so a
+// column width may only ever change here.
+const double kPeerRowAccentWidth = 2.0;
+const double kPeerRowPadStart = 10.0;
+const double kPeerRowPadEnd = 8.0;
+const double kPeerColTile = 26.0;
+const double kPeerColGap = 10.0;
+
+/// Sized for the longest machine value — a 16-character custom ID at 12px mono
+/// — not for the 9-digit default, so the column never reflows.
+const double kPeerColId = 132.0;
+
+/// Sized for the chip dot plus the longest fa/en/tr rendering of 'Offline'.
+const double kPeerColStatus = 84.0;
+const double kPeerColLastSeen = 96.0;
+const double kPeerColMore = 24.0;
+
+/// Floor for the name cell before an optional column is dropped. Turkish and
+/// Persian names run longer than English, so this is deliberately generous.
+const double kPeerColNameMin = 96.0;
+
+// Progressive disclosure, shared by the row and the header. `cellsWidth` is the
+// width left for [name | gap | id | status | last seen | kebab] — i.e. after the
+// accent, the row padding, the platform tile and its gap. Both call sites
+// measure it the same way, so they can never disagree about which columns exist.
+bool peerShowIdColumn(double cellsWidth) =>
+    cellsWidth >=
+    kPeerColNameMin + kPeerColGap + kPeerColId + kPeerColStatus + kPeerColMore;
+
+bool peerShowLastSeenColumn(double cellsWidth) =>
+    cellsWidth >=
+    kPeerColNameMin +
+        kPeerColGap +
+        kPeerColId +
+        kPeerColStatus +
+        kPeerColLastSeen +
+        kPeerColMore;
+
 class _PeerCard extends StatefulWidget {
   final Peer peer;
   final PeerTabIndex tab;
@@ -50,6 +90,23 @@ class _PeerCardState extends State<_PeerCard>
   final double _cardRadius = 16;
   final double _tileRadius = 5;
   final double _borderWidth = 2;
+
+  // Rx state belongs to the State, not to build(): a fresh `.obs` per build
+  // leaks the previous one and drops any hover that is already in flight.
+  final RxBool _hover = false.obs;
+  late final Rx<BoxDecoration?> _deco =
+      Rx<BoxDecoration?>(_legacyLandscapeDeco(false));
+
+  BoxDecoration _legacyLandscapeDeco(bool hovered) => BoxDecoration(
+        border: Border.all(
+            color: hovered
+                ? Theme.of(context).colorScheme.primary
+                : Colors.transparent,
+            width: _borderWidth),
+        borderRadius: BorderRadius.circular(
+          peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -93,37 +150,268 @@ class _PeerCardState extends State<_PeerCard>
 
   Widget _buildLandscape() {
     final peer = super.widget.peer;
-    var deco = Rx<BoxDecoration?>(
-      BoxDecoration(
-        border: Border.all(color: Colors.transparent, width: _borderWidth),
-        borderRadius: BorderRadius.circular(
-          peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-        ),
-      ),
-    );
     return MouseRegion(
       onEnter: (evt) {
-        deco.value = BoxDecoration(
-          border: Border.all(
-              color: Theme.of(context).colorScheme.primary,
-              width: _borderWidth),
-          borderRadius: BorderRadius.circular(
-            peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-          ),
-        );
+        _hover.value = true;
+        _deco.value = _legacyLandscapeDeco(true);
       },
       onExit: (evt) {
-        deco.value = BoxDecoration(
-          border: Border.all(color: Colors.transparent, width: _borderWidth),
-          borderRadius: BorderRadius.circular(
-            peerCardUiType.value == PeerUiType.grid ? _cardRadius : _tileRadius,
-          ),
-        );
+        _hover.value = false;
+        _deco.value = _legacyLandscapeDeco(false);
       },
-      child: gestureDetector(
-          child: Obx(() => peerCardUiType.value == PeerUiType.grid
-              ? _buildPeerCard(context, peer, deco)
-              : _buildPeerTile(context, peer, deco))),
+      child: gestureDetector(child: Obx(() {
+        if (peerCardUiType.value == PeerUiType.grid) {
+          return _buildPeerCard(context, peer, _deco);
+        }
+        // Desktop-only: the DECK row. Mobile landscape keeps the old tile.
+        if (peerCardUiType.value == PeerUiType.list &&
+            (isDesktop || isWebDesktop)) {
+          return _buildPeerListRow(context, peer);
+        }
+        return _buildPeerTile(context, peer, _deco);
+      })),
+    );
+  }
+
+  /// DECK layer: one 44px desktop list row, five cells wide, geometry shared
+  /// with the column header in peers_view.dart. Opaque by construction — no
+  /// BackdropFilter may ever appear here, it sits inside a scrolling list.
+  Widget _buildPeerListRow(BuildContext context, Peer peer) {
+    hideUsernameOnCard ??=
+        bind.mainGetBuildinOption(key: kHideUsernameOnCard) == 'Y';
+    final PeerTabModel peerTabModel = Provider.of(context);
+    final selected = peerTabModel.isPeerSelected(peer.id);
+
+    final who = hideUsernameOnCard == true
+        ? peer.hostname
+        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final title = peer.alias.isNotEmpty
+        ? peer.alias
+        : (who.isNotEmpty ? who : formatID(peer.id));
+    // Name and OS are two block lines. Laid out inline they collapse onto one
+    // line and the OS is the first thing the ellipsis eats.
+    final subtitle = <String>[
+      if (peer.platform.isNotEmpty) peer.platform,
+      if (peer.alias.isNotEmpty && who.isNotEmpty) who,
+      if (_showNote(peer)) peer.note,
+    ].join('  ·  ');
+
+    final tagColors = _frontN(peer.tags, 3)
+        .map((e) => gFFI.abModel.getCurrentAbTagColor(e))
+        .toList();
+
+    final mutedLabel = TextStyle(
+      fontSize: 11,
+      height: 1.2,
+      color: MyTheme.textDim(context),
+    );
+
+    Widget buildRow(double cellsWidth) => Row(
+      children: [
+        // 1 — platform tile.
+        Container(
+          width: kPeerColTile,
+          height: kPeerColTile,
+          decoration: BoxDecoration(
+            color: MyTheme.snBlue.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: MyTheme.line(context), width: 1),
+          ),
+          child: Stack(
+            alignment: AlignmentDirectional.center,
+            clipBehavior: Clip.none,
+            children: [
+              getPlatformImage(peer.platform, size: 16),
+              if (_shouldBuildPasswordIcon(peer))
+                PositionedDirectional(
+                  top: 1,
+                  start: 1,
+                  child: Icon(Icons.key, size: 7, color: MyTheme.snCyan),
+                ),
+            ],
+          ),
+        ),
+        SizedBox(width: kPeerColGap),
+        // 2 — name over OS.
+        Expanded(
+          child: Tooltip(
+            message: subtitle.isEmpty ? title : '$title\n$subtitle',
+            waitDuration: const Duration(seconds: 1),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.15,
+                          fontWeight: FontWeight.w500,
+                          color: MyTheme.textMain(context),
+                        ),
+                      ),
+                    ),
+                    if (tagColors.isNotEmpty)
+                      Tooltip(
+                        message:
+                            '${translate('Tags')}: ${peer.tags.join(', ')}',
+                        waitDuration: const Duration(seconds: 1),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: tagColors
+                              .map((c) => Container(
+                                    width: 6,
+                                    height: 6,
+                                    margin: const EdgeInsetsDirectional.only(
+                                        start: 4),
+                                    decoration: BoxDecoration(
+                                        color: c, shape: BoxShape.circle),
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                  ],
+                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: mutedLabel,
+                  ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(width: kPeerColGap),
+        // 3 — device ID. Machine-readable, so the glyph run stays LTR even in
+        // fa; only the run is forced, the cell itself still mirrors.
+        if (peerShowIdColumn(cellsWidth))
+          SizedBox(
+            width: kPeerColId,
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(
+                  formatID(peer.id),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.2,
+                    letterSpacing: 0.2,
+                    fontFamily: MyTheme.plateMono.first,
+                    fontFamilyFallback: MyTheme.plateMono.sublist(1),
+                    color: MyTheme.textMuted(context),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        // 4 — status chip.
+        SizedBox(
+          width: kPeerColStatus,
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: peerStatusChip(context, peer.online),
+          ),
+        ),
+        // 5 — last seen. The Rust side discards the timestamp, so there is
+        // nothing to render; an em-dash beats an invented value.
+        if (peerShowLastSeenColumn(cellsWidth))
+          SizedBox(
+            width: kPeerColLastSeen,
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text('—', style: mutedLabel),
+            ),
+          ),
+        _rowActionMore(peer, peerTabModel),
+      ],
+    );
+
+    // Hover and selection paint *behind* the content. The old
+    // `foregroundDecoration` overlay tinted the text it covered.
+    return Obx(() {
+      // `_hover.value` first: `selected || _hover.value` would short-circuit on
+      // a selected row, leaving this Obx with no observable to track.
+      final active = _hover.value || selected;
+      return Container(
+        decoration: BoxDecoration(
+          color: active ? MyTheme.rowHover(context) : Colors.transparent,
+          border: BorderDirectional(
+            start: BorderSide(
+              color: active ? MyTheme.snBlue : Colors.transparent,
+              width: kPeerRowAccentWidth,
+            ),
+          ),
+        ),
+        padding: const EdgeInsetsDirectional.only(
+            start: kPeerRowPadStart, end: kPeerRowPadEnd),
+        // Nothing in the app enforces a minimum window size, so the optional
+        // columns have to drop out before the Row can overflow. The header runs
+        // the same rule against the same measured width.
+        child: LayoutBuilder(
+          builder: (context, constraints) =>
+              buildRow(constraints.maxWidth - kPeerColTile - kPeerColGap),
+        ),
+      );
+    });
+  }
+
+  /// 24px kebab / multi-select box for the DECK row. `build_more()` is exported
+  /// and draws a 28px CircleAvatar, which does not fit the 44px pitch, so the
+  /// row carries its own control. The menu plumbing is unchanged.
+  Widget _rowActionMore(Peer peer, PeerTabModel peerTabModel) {
+    if (peerTabModel.multiSelectionMode) {
+      final selected = peerTabModel.isPeerSelected(peer.id);
+      Widget icon = Icon(
+        selected ? Icons.check_box : Icons.check_box_outline_blank,
+        size: 18,
+        color: selected ? MyTheme.accent : MyTheme.textDim(context),
+      );
+      if (peerTabModel.isShiftDown && peer.id == peerTabModel.lastId) {
+        icon = Container(
+          decoration: BoxDecoration(
+              border: Border.all(color: MyTheme.accent, width: 1)),
+          child: icon,
+        );
+      }
+      return SizedBox(
+          width: kPeerColMore,
+          height: kPeerColMore,
+          child: Center(child: icon));
+    }
+    return SizedBox(
+      width: kPeerColMore,
+      height: kPeerColMore,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (e) {
+          final x = e.position.dx;
+          final y = e.position.dy;
+          _menuPos = RelativeRect.fromLTRB(x, y, x, y);
+        },
+        onPointerUp: (_) => _showPeerMenu(peer.id),
+        // The empty onTap is load-bearing: it claims the tap in the arena so
+        // opening the menu does not also toggle the row selection, exactly as
+        // the InkWell inside build_more() used to.
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {},
+          child: Center(
+            child: Icon(Icons.more_vert,
+                size: 18, color: MyTheme.textDim(context)),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1472,6 +1760,64 @@ Widget getOnline(double rightPadding, bool online) {
           padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
           child: CircleAvatar(
               radius: 3, backgroundColor: online ? Colors.green : kColorWarn)));
+}
+
+/// DECK status cell. A sibling of [getOnline] rather than a variant of it —
+/// `getOnline` is exported and drawn by the grid and tile paths, which still
+/// want the bare 6px dot.
+Widget peerStatusChip(BuildContext context, bool online) {
+  final fg = online ? MyTheme.snGreen : MyTheme.textDim(context);
+  return Tooltip(
+    message: translate(online ? 'Online' : 'Offline'),
+    waitDuration: const Duration(seconds: 1),
+    child: Container(
+      height: 20,
+      padding: const EdgeInsetsDirectional.only(start: 7, end: 8),
+      decoration: BoxDecoration(
+        color: online
+            ? MyTheme.snGreen.withOpacity(0.12)
+            : MyTheme.line(context),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: online
+                ? MyTheme.snGreen.withOpacity(0.35)
+                : MyTheme.line2(context),
+            width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          online
+              ? Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                      color: MyTheme.snGreen, shape: BoxShape.circle),
+                )
+              : Container(
+                  width: 6,
+                  height: 6,
+                  decoration:
+                      BoxDecoration(border: Border.all(color: fg, width: 1)),
+                ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              translate(online ? 'Online' : 'Offline'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.2,
+                fontWeight: FontWeight.w500,
+                color: fg,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 Widget build_more(BuildContext context, {bool invert = false}) {

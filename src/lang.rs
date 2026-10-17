@@ -145,6 +145,15 @@ fn resolve_lang(saved_lang: &str, locale: &str, cjk_fallback: bool) -> String {
             .unwrap_or_default()
             .to_owned();
     }
+    // Servernet Remote ships Persian. Upstream falls back to the OS locale,
+    // which on a typical Windows install means English even for our Iranian
+    // audience. An explicit choice in Settings is honoured above (it is read
+    // from LocalConfig before this point); this only covers "nothing chosen".
+    if lang.is_empty() || lang == "en" {
+        if hbb_common::config::LocalConfig::get_option("lang").is_empty() {
+            lang = "fa".to_owned();
+        }
+    }
     if cjk_fallback && is_cjk_lang(&lang) {
         "en".to_owned()
     } else {
