@@ -194,5 +194,5 @@ jobs:
         with:
           tag_name: windows-latest
           name: "Servernet Remote — Windows (latest)"
-          body: "Unsigned portable Windows x64 build. Extract and run rustdesk.exe. Auto-updated by CI."
+          body: "Unsigned portable Windows x64 build. Extract and run servernet-remote.exe. Auto-updated by CI."
           files: servernet-remote-${{ env.VERSION }}-windows-x64.zip

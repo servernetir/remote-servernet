@@ -180,7 +180,7 @@ jobs:
           cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
           ./flutter/ndk_arm64.sh
           mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
-          cp ./target/aarch64-linux-android/release/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+          cp ./target/aarch64-linux-android/release/libservernet_core.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/libservernet_core.so
 
       - name: Build APK
         shell: bash

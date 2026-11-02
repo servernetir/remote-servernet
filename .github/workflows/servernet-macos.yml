@@ -178,5 +178,5 @@ jobs:
         with:
           tag_name: macos-latest
           name: "Servernet Remote — macOS (latest)"
-          body: "Unsigned Apple Silicon .dmg. First launch: right-click the app → Open (to bypass Gatekeeper). Auto-updated by CI."
+          body: "Unsigned Apple Silicon .dmg. First launch is blocked by Gatekeeper: allow it under System Settings > Privacy & Security. On macOS 14 and earlier, right-click > Open also works. Auto-updated by CI."
           files: servernet-remote-${{ env.VERSION }}-macos-arm64.dmg
